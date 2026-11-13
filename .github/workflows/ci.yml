@@ -57,9 +57,12 @@ jobs:
       # --locked fails if uv.lock is out of step with pyproject.toml.
       - run: uv sync --locked
 
+      # GitHub runs this job on the VM, where the service's published port is on
+      # localhost. Forgejo's Docker runner runs the job in a container, where the
+      # service is reached by its name instead.
       - run: uv run pytest
         env:
-          DB_HOST: localhost
+          DB_HOST: ${{ github.server_url == 'https://github.com' && 'localhost' || 'db' }}
           DB_PORT: "5432"
 
   frontend:
