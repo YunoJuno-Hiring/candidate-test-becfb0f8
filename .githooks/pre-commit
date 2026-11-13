@@ -1,0 +1,21 @@
+#!/bin/sh
+# Refuses the commit unless the backend test suite passes against the
+# docker-compose stack. Git runs hooks from the repository root.
+# Enable once per clone: git config core.hooksPath .githooks
+# Skip in an emergency with: git commit --no-verify
+
+command -v docker >/dev/null 2>&1 || { echo "pre-commit: docker not found"; exit 1; }
+command -v task >/dev/null 2>&1 || { echo "pre-commit: task not found (https://taskfile.dev)"; exit 1; }
+
+# --wait returns once the containers are running, but Postgres needs a moment
+# more before it accepts connections, so poll pg_isready for up to ~30s.
+docker compose up -d --wait || { echo "pre-commit: docker compose up failed"; exit 1; }
+
+tries=0
+until docker compose exec -T db pg_isready -U yunojuno >/dev/null 2>&1; do
+  tries=$((tries + 1))
+  [ "$tries" -ge 30 ] && { echo "pre-commit: Postgres not ready after 30s"; exit 1; }
+  sleep 1
+done
+
+task test || { echo "pre-commit: tests failed, fix them and commit again"; exit 1; }
