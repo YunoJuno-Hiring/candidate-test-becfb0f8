@@ -16,8 +16,10 @@ from rest_framework.views import APIView
 from accounts.models import Company
 
 from .models import WebhookEndpoint
-from .serializers import WebhookEndpointSerializer
+from .serializers import WebhookDeliverySerializer, WebhookEndpointSerializer
 from .services import resume, send_test_event
+
+RECENT_DELIVERIES = 20
 
 # Audit trail: who changed what, by id. Hosts rather than full URLs, which can carry tokens.
 logger = logging.getLogger(__name__)
@@ -59,7 +61,11 @@ class WebhookEndpointListCreateView(generics.ListCreateAPIView[WebhookEndpoint])
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        endpoint = serializer.save(company=admin_company(request))
+        with transaction.atomic():
+            endpoint = serializer.save(company=admin_company(request))
+            # GitHub-style ping: saving never waits on the destination; the result shows in the delivery log.
+            if endpoint.status == WebhookEndpoint.Status.ACTIVE:
+                send_test_event(endpoint)
         logger.info(
             'User %s created webhook endpoint %s for company %s (host %s)',
             request.user.id,
@@ -118,6 +124,22 @@ class SendTestEventView(APIView):
     permission_classes = [IsCompanyAdmin]
 
     def post(self, request: Request, pk: int) -> Response:
-        payload = send_test_event(get_object_or_404(company_endpoints(request), pk=pk))
+        endpoint = get_object_or_404(company_endpoints(request), pk=pk)
+        # Paused means the admin wants nothing sent, tests included. Disabled endpoints still take tests: that's how
+        # one proves the destination works again.
+        if endpoint.status == WebhookEndpoint.Status.PAUSED:
+            return Response(
+                {'detail': 'This endpoint is paused. Resume it to send a test event.'}, status=status.HTTP_409_CONFLICT
+            )
+        payload = send_test_event(endpoint)
         logger.info('User %s sent test payload %s to webhook endpoint %s', request.user.id, payload.id, pk)
         return Response({'id': payload.id}, status=status.HTTP_202_ACCEPTED)
+
+
+class DeliveriesView(APIView):
+    permission_classes = [IsCompanyAdmin]
+
+    def get(self, request: Request, pk: int) -> Response:
+        endpoint = get_object_or_404(company_endpoints(request), pk=pk)
+        payloads = endpoint.payloads.order_by('-created_at', '-id').prefetch_related('events')[:RECENT_DELIVERIES]
+        return Response(WebhookDeliverySerializer(payloads, many=True).data)

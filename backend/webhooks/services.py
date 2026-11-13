@@ -62,7 +62,7 @@ def emit_contract_created(contract: Contract) -> None:
 
 
 def send_test_event(endpoint: WebhookEndpoint) -> WebhookPayload:
-    # Queued whatever the endpoint's status: a test is how an admin proves a disabled endpoint works again.
+    # Queued even when disabled: a test is how an admin proves it works again. The view refuses paused ones.
     payload = WebhookPayload.objects.create(
         endpoint=endpoint, url=endpoint.url, payload=envelope('webhook.test', {'endpoint_id': endpoint.id})
     )

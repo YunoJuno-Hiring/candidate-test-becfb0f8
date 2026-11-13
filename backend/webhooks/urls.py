@@ -7,4 +7,5 @@ urlpatterns = [
     path('webhook-endpoints/<int:pk>/', views.WebhookEndpointDetailView.as_view(), name='webhook-endpoint-detail'),
     path('webhook-endpoints/<int:pk>/reveal-secret/', views.RevealSecretView.as_view(), name='webhook-reveal-secret'),
     path('webhook-endpoints/<int:pk>/test/', views.SendTestEventView.as_view(), name='webhook-test-event'),
+    path('webhook-endpoints/<int:pk>/deliveries/', views.DeliveriesView.as_view(), name='webhook-deliveries'),
 ]

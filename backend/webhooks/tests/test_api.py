@@ -53,6 +53,15 @@ def test_create_returns_the_secret_but_listing_does_not(admin_client: APIClient,
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(('status', 'pings'), [('active', 1), ('paused', 0)])
+def test_creating_an_endpoint_pings_it(admin_client: APIClient, status: str, pings: int) -> None:
+    resp = admin_client.post(URL, {'url': VALID, 'status': status})
+
+    sent = WebhookPayload.objects.filter(endpoint_id=resp.data['id'])
+    assert [(p.payload['type'], p.status) for p in sent] == [('webhook.test', WebhookPayload.Status.QUEUED)] * pings
+
+
+@pytest.mark.django_db
 def test_clients_cannot_set_the_secret_or_company(admin_client: APIClient, meridian: Company) -> None:
     resp = admin_client.post(URL, {'url': VALID, 'secret': 'whsec_mine', 'company': meridian.id})
 
@@ -109,8 +118,8 @@ def test_resuming_queues_only_the_most_recent_saved_payload(
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize('status', ['active', 'paused', 'disabled'])
-def test_test_events_are_queued_whatever_the_status(
+@pytest.mark.parametrize('status', ['active', 'disabled'])
+def test_test_events_are_queued_when_active_or_disabled(
     admin_client: APIClient, endpoint: WebhookEndpoint, status: str
 ) -> None:
     endpoint.status = status
@@ -120,6 +129,15 @@ def test_test_events_are_queued_whatever_the_status(
 
     sent = endpoint.payloads.get()
     assert (sent.payload['type'], sent.status) == ('webhook.test', WebhookPayload.Status.QUEUED)
+
+
+@pytest.mark.django_db
+def test_a_paused_endpoint_refuses_test_events(admin_client: APIClient, endpoint: WebhookEndpoint) -> None:
+    endpoint.status = WebhookEndpoint.Status.PAUSED
+    endpoint.save()
+
+    assert admin_client.post(f'{URL}{endpoint.id}/test/').status_code == 409
+    assert not endpoint.payloads.exists()
 
 
 @pytest.mark.django_db
