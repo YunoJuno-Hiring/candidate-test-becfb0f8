@@ -16,5 +16,10 @@ services:
       - "8025:8025"
       - "1025:1025"
 
+  webhook-receiver:
+    build: ./services/webhook-receiver
+    ports:
+      - 8027:8027
+
 volumes:
   postgres_data:
