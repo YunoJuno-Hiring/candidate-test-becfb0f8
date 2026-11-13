@@ -35,5 +35,5 @@ tasks:
     desc: Install webhook receiver dependencies and start the receiver.
     dir: services/webhook-receiver
     cmds:
-      - npm install --omit=dev --silent
+      - pnpm install --prod --frozen-lockfile --silent
       - node index.js
