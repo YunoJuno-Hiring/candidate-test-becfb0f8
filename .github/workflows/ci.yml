@@ -26,6 +26,13 @@ jobs:
       run:
         working-directory: backend
 
+    # GitHub runs this job on the VM, where the service's published port is on
+    # localhost. Forgejo's Docker runner runs the job in a container, where the
+    # service is reached by its name instead.
+    env:
+      DB_HOST: ${{ github.server_url == 'https://github.com' && 'localhost' || 'db' }}
+      DB_PORT: "5432"
+
     # Same image and credentials as docker-compose.yml; the tests create their
     # own test database from these.
     services:
@@ -57,13 +64,16 @@ jobs:
       # --locked fails if uv.lock is out of step with pyproject.toml.
       - run: uv sync --locked
 
-      # GitHub runs this job on the VM, where the service's published port is on
-      # localhost. Forgejo's Docker runner runs the job in a container, where the
-      # service is reached by its name instead.
+      # The same gates as `task check` in Taskfile.dist.yml, as separate steps so
+      # a failure names the gate. Cheapest first.
+      - run: uv run ruff format --check .
+      - run: uv run ruff check .
+      - run: uv run deptry .
+      - run: uv run mypy .
+      - run: uv run python manage.py check --fail-level WARNING
+      - run: uv run python manage.py makemigrations --check --dry-run
+      - run: uv export --frozen --quiet --format requirements-txt | uv run pip-audit --strict --disable-pip --requirement /dev/stdin
       - run: uv run pytest
-        env:
-          DB_HOST: ${{ github.server_url == 'https://github.com' && 'localhost' || 'db' }}
-          DB_PORT: "5432"
 
   frontend:
     runs-on: ubuntu-latest
@@ -90,6 +100,8 @@ jobs:
 
       # --frozen-lockfile fails if pnpm-lock.yaml is out of step with package.json.
       - run: pnpm install --frozen-lockfile
+
+      - run: pnpm audit --audit-level high
 
       - run: pnpm test
 

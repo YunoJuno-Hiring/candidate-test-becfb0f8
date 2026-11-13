@@ -1,6 +1,6 @@
 #!/bin/sh
-# Refuses the commit unless the frontend tests pass and it builds, and the
-# backend test suite passes against the docker-compose stack.
+# Refuses the commit unless the frontend passes its audit, tests and build, and
+# every backend gate in `task check` passes against the docker-compose stack.
 # Git runs hooks from the repository root.
 # Enable once per clone: git config core.hooksPath .githooks
 # Skip in an emergency with: git commit --no-verify
@@ -13,6 +13,7 @@ command -v pnpm >/dev/null 2>&1 || { echo "pre-commit: pnpm not found"; exit 1; 
 # The build runs tsc then vite build, so it catches type errors and broken
 # imports that the small test suite wouldn't.
 [ -d frontend/node_modules ] || { echo "pre-commit: run pnpm install in frontend/ first"; exit 1; }
+pnpm --dir frontend audit --audit-level high || { echo "pre-commit: frontend has high or critical advisories"; exit 1; }
 pnpm --dir frontend test || { echo "pre-commit: frontend tests failed"; exit 1; }
 pnpm --dir frontend build >/dev/null || { echo "pre-commit: frontend build failed"; exit 1; }
 
@@ -27,4 +28,4 @@ until docker compose exec -T db pg_isready -U yunojuno >/dev/null 2>&1; do
   sleep 1
 done
 
-task test || { echo "pre-commit: tests failed, fix them and commit again"; exit 1; }
+task check || { echo "pre-commit: a backend gate failed (see above), fix it and commit again"; exit 1; }

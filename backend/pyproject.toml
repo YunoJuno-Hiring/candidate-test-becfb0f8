@@ -11,15 +11,121 @@ version = "0.1.0"
 
 [dependency-groups]
 dev = [
+  "deptry>=0.25.1",
+  "django-stubs>=6.1.2",
+  "djangorestframework-stubs>=3.18.1",
+  "mypy>=2.4.1",
+  "pip-audit>=2.10.1",
   "pytest>=8.3",
   "pytest-django>=4.9",
+  "ruff>=0.17.3",
 ]
 
 [tool.uv]
 package = false
+# Supply-chain guard, as with pnpm: ignore releases younger than 14 days.
+exclude-newer = "14 days"
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings"
 python_classes = ["Test*"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
+# Warnings fail the run, the closest Python gets to --warnings-as-errors.
+filterwarnings = ["error"]
+
+# --- Quality gates (see Taskfile "check") ---------------------------------
+
+[tool.ruff]
+target-version = "py314"
+# Django's long-standing convention: "the width of GitHub code review".
+line-length = 119
+extend-exclude = ["*/migrations/*"]
+
+[tool.ruff.format]
+# The codebase is written with single quotes; keep that house style.
+quote-style = "single"
+# TODO: format these files in a separate PR, then delete this list.
+# They predate the formatter and are left as they are so this change doesn't
+# bury real work under reformatting; every new file is checked. This list
+# should only shrink.
+exclude = [
+  "accounts/tests/test_auth.py",
+  "billing/views.py",
+  "config/urls.py",
+  "conftest.py",
+  "contracts/serializers.py",
+  "contracts/tests/test_contract_create.py",
+  "contracts/tests/test_timesheets.py",
+  "contracts/urls.py",
+  "contracts/views.py",
+  "core/management/commands/seed.py",
+  "manage.py",
+]
+
+[tool.ruff.lint]
+# E/W/F pycodestyle + pyflakes, I import order, B bugbear, UP modern syntax,
+# SIM simplifications, DJ Django rules, S bandit security rules.
+select = ["E", "W", "F", "I", "B", "UP", "SIM", "DJ", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests assert, and use throwaway passwords.
+"**/tests/**" = ["S101", "S105", "S106"]
+"conftest.py" = ["S101", "S105", "S106"]
+# S105 stays: the seed command's shared password is for local demo data only.
+# TODO: fix E501, SIM108 and I001 in the seed command, then drop them here.
+"core/management/commands/seed.py" = ["S105", "E501", "SIM108", "I001"]
+# TODO: fix these pre-existing issues, then delete each entry. Import order
+# (I001) in files that predate the linter, alongside the format exclude list
+# above, and one nullable CharField (DJ001) whose fix needs a migration.
+# This list should only shrink; the test entries keep S101/S105/S106.
+"accounts/admin.py" = ["I001"]
+"accounts/models.py" = ["I001"]
+"accounts/serializers.py" = ["I001"]
+"accounts/urls.py" = ["I001"]
+"accounts/views.py" = ["I001"]
+"billing/urls.py" = ["I001"]
+"billing/views.py" = ["I001"]
+"config/settings.py" = ["I001"]
+"config/urls.py" = ["I001"]
+"config/wsgi.py" = ["I001"]
+"contracts/admin.py" = ["I001"]
+"contracts/models.py" = ["DJ001"]
+"contracts/serializers.py" = ["I001"]
+"contracts/tests/test_contract_create.py" = ["S101", "S105", "S106", "I001"]
+"contracts/tests/test_contracts.py" = ["S101", "S105", "S106", "I001"]
+"contracts/tests/test_timesheets.py" = ["S101", "S105", "S106", "I001"]
+"contracts/urls.py" = ["I001"]
+
+[tool.mypy]
+plugins = ["mypy_django_plugin.main", "mypy_drf_plugin.main"]
+exclude = ["/migrations/"]
+
+# Strict typing for the webhooks app (Task C); the existing code has no hints.
+# (mypy's `strict` is global-only, so its flags are listed for this module.)
+[[tool.mypy.overrides]]
+module = ["webhooks.*"]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_untyped_calls = true
+disallow_any_generics = true
+check_untyped_defs = true
+warn_return_any = true
+strict_equality = true
+
+# python-decouple ships no type information.
+[[tool.mypy.overrides]]
+module = ["decouple"]
+ignore_missing_imports = true
+
+[tool.django-stubs]
+django_settings_module = "config.settings"
+
+[tool.deptry]
+known_first_party = ["accounts", "billing", "config", "contracts", "core", "webhooks"]
+
+[tool.deptry.per_rule_ignores]
+# Django loads the Postgres driver by name from settings, so no import shows it.
+DEP002 = ["psycopg"]
+# Tests and conftest.py import pytest, which is rightly a dev dependency.
+DEP004 = ["pytest"]
