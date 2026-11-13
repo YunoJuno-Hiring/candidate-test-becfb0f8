@@ -1,5 +1,5 @@
 from pathlib import Path
-from decouple import config
+from decouple import Csv, config
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -86,3 +86,8 @@ LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
+
+# Webhook hosts exempt from the https and SSRF checks: the local receiver, and only in development.
+WEBHOOK_DEV_ALLOWED_HOSTS = config(
+    'WEBHOOK_DEV_ALLOWED_HOSTS', default='localhost,webhook-receiver' if DEBUG else '', cast=Csv()
+)
