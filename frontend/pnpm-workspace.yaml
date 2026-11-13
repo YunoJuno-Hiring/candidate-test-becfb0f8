@@ -1,0 +1,4 @@
+# Supply-chain guard: don't install a package version until it has been public
+# for 14 days (in minutes). Most malicious releases are caught and pulled
+# within days, so this keeps them off our machines and CI.
+minimumReleaseAge: 20160
