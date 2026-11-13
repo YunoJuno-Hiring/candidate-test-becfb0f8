@@ -3,9 +3,11 @@ import hashlib
 import hmac
 import json
 import logging
+import smtplib
 import socket
 from collections.abc import Callable
 from datetime import timedelta
+from typing import Any
 
 import httpx
 import pytest
@@ -14,6 +16,7 @@ from django.core import mail
 from django.utils import timezone
 
 from accounts.models import Company
+from webhooks import delivery
 from webhooks.delivery import deliver
 from webhooks.models import WebhookEndpoint, WebhookPayload
 
@@ -185,6 +188,30 @@ def test_a_success_does_not_unpause_a_paused_endpoint(
 
     endpoint.refresh_from_db()
     assert endpoint.status == WebhookEndpoint.Status.PAUSED
+
+
+@pytest.mark.django_db
+def test_a_failed_alert_email_is_tried_again_on_the_next_failure(
+    monkeypatch: pytest.MonkeyPatch, endpoint: WebhookEndpoint, new_payload: Callable[[], WebhookPayload]
+) -> None:
+    real_send_mail = delivery.send_mail
+
+    def mail_server_down(*args: Any, **kwargs: Any) -> int:
+        raise smtplib.SMTPException('Mail server unavailable')
+
+    payload = new_payload()
+    for _ in range(4):
+        attempt(payload, client(503))
+    monkeypatch.setattr(delivery, 'send_mail', mail_server_down)
+    attempt(payload, client(503))  # retry 4: the email fails, but delivery bookkeeping carries on
+
+    endpoint.refresh_from_db()
+    assert endpoint.alerted_at is None  # not marked as alerted, so it isn't lost
+    assert payload.status == Status.FAILED and payload.next_attempt_at is not None
+
+    monkeypatch.setattr(delivery, 'send_mail', real_send_mail)
+    attempt(payload, client(503))  # retry 5: the mail server is back
+    assert len(mail.outbox) == 1
 
 
 @pytest.mark.django_db

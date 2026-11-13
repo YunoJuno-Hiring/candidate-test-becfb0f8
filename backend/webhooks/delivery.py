@@ -114,16 +114,22 @@ def alert_admins(endpoint: WebhookEndpoint, disable_at: datetime, last_error: st
     if not WebhookEndpoint.objects.filter(pk=endpoint.pk, alerted_at=None).update(alerted_at=timezone.now()):
         return
     admins = CompanyAdmin.objects.filter(company=endpoint.company).select_related('user')
-    send_mail(
-        subject=f'Webhook endpoint failing: {endpoint.url}',
-        message=(
-            f'Deliveries to {endpoint.url} have been failing for over an hour.\n'
-            f'Last error: {last_error[:200]}\n\n'
-            f'We will keep retrying. If it is still failing on {disable_at:%d %B %Y at %H:%M} UTC, '
-            'the endpoint will be disabled until a test event succeeds.'
-        ),
-        from_email=None,
-        recipient_list=[admin.user.email for admin in admins],
-    )
+    try:
+        send_mail(
+            subject=f'Webhook endpoint failing: {endpoint.url}',
+            message=(
+                f'Deliveries to {endpoint.url} have been failing for over an hour.\n'
+                f'Last error: {last_error[:200]}\n\n'
+                f'We will keep retrying. If it is still failing on {disable_at:%d %B %Y at %H:%M} UTC, '
+                'the endpoint will be disabled until a test event succeeds.'
+            ),
+            from_email=None,
+            recipient_list=[admin.user.email for admin in admins],
+        )
+    except Exception:
+        # Un-mark the incident, so the next failed retry tries the email again instead of never alerting.
+        WebhookEndpoint.objects.filter(pk=endpoint.pk).update(alerted_at=None)
+        logger.exception('Could not email admins that webhook endpoint %s is failing; will retry', endpoint.id)
+        return
     logger.info('Emailed %s admin(s) that endpoint %s is failing', len(admins), endpoint.id)
     # TODO: email again when we give up and disable the endpoint.
