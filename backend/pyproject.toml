@@ -1,18 +1,18 @@
 [project]
-name = "yunojuno-backend"
-version = "0.1.0"
-requires-python = ">=3.11"
 dependencies = [
-    "Django>=5.1,<6.0",
-    "djangorestframework>=3.15,<4.0",
-    "psycopg[binary]>=3.2",
-    "python-decouple>=3.8",
+  "Django>=5.1,<6.0",
+  "djangorestframework>=3.15,<4.0",
+  "psycopg[binary]>=3.2",
+  "python-decouple>=3.8",
 ]
+name = "yunojuno-backend"
+requires-python = ">=3.14"
+version = "0.1.0"
 
 [dependency-groups]
 dev = [
-    "pytest>=8.3",
-    "pytest-django>=4.9",
+  "pytest>=8.3",
+  "pytest-django>=4.9",
 ]
 
 [tool.uv]
@@ -20,6 +20,6 @@ package = false
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings"
-python_files = ["test_*.py"]
 python_classes = ["Test*"]
+python_files = ["test_*.py"]
 python_functions = ["test_*"]
