@@ -1,24 +1,18 @@
 #!/bin/sh
-# Refuses the commit unless the frontend passes its audit, tests and build, and
-# every backend gate in `task check` passes against the docker-compose stack.
-# Git runs hooks from the repository root.
-# Enable once per clone: git config core.hooksPath .githooks
-# Skip in an emergency with: git commit --no-verify
+# Blocks the commit unless the frontend audit/tests/build and every `task check` gate pass.
+# Enable once per clone: git config core.hooksPath .githooks (skip: git commit --no-verify)
 
 command -v docker >/dev/null 2>&1 || { echo "pre-commit: docker not found"; exit 1; }
 command -v task >/dev/null 2>&1 || { echo "pre-commit: task not found (https://taskfile.dev)"; exit 1; }
 command -v pnpm >/dev/null 2>&1 || { echo "pre-commit: pnpm not found"; exit 1; }
 
-# Frontend first: it takes a few seconds, against the backend's container start-up.
-# The build runs tsc then vite build, so it catches type errors and broken
-# imports that the small test suite wouldn't.
+# Frontend first (seconds). The build runs tsc + vite, catching type errors and broken imports.
 [ -d frontend/node_modules ] || { echo "pre-commit: run pnpm install in frontend/ first"; exit 1; }
 pnpm --dir frontend audit --audit-level high || { echo "pre-commit: frontend has high or critical advisories"; exit 1; }
 pnpm --dir frontend test || { echo "pre-commit: frontend tests failed"; exit 1; }
 pnpm --dir frontend build >/dev/null || { echo "pre-commit: frontend build failed"; exit 1; }
 
-# --wait returns once the containers are running, but Postgres needs a moment
-# more before it accepts connections, so poll pg_isready for up to ~30s.
+# --wait only means "running"; poll pg_isready (up to ~30s) until Postgres accepts connections.
 docker compose up -d --wait || { echo "pre-commit: docker compose up failed"; exit 1; }
 
 tries=0

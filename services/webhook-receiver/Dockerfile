@@ -2,9 +2,7 @@ FROM node:24-slim
 
 WORKDIR /app
 
-# pnpm via corepack, at the version pinned in package.json's packageManager.
-# pnpm doesn't run dependency install scripts unless allowed, which is the
-# project's reason for using it over npm (see flake.nix).
+# pnpm (pinned via packageManager) won't run dependency install scripts: the project's no-npm reason.
 RUN corepack enable
 
 COPY package.json pnpm-lock.yaml ./

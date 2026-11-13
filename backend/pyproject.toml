@@ -45,10 +45,8 @@ extend-exclude = ["*/migrations/*"]
 [tool.ruff.format]
 # The codebase is written with single quotes; keep that house style.
 quote-style = "single"
-# TODO: format these files in a separate PR, then delete this list.
-# They predate the formatter and are left as they are so this change doesn't
-# bury real work under reformatting; every new file is checked. This list
-# should only shrink.
+# TODO: format these pre-existing files in a separate PR, then delete this list (it should only shrink).
+# Left alone so real work isn't buried under reformatting; every new file is checked.
 exclude = [
   "accounts/tests/test_auth.py",
   "billing/views.py",
@@ -64,8 +62,7 @@ exclude = [
 ]
 
 [tool.ruff.lint]
-# E/W/F pycodestyle + pyflakes, I import order, B bugbear, UP modern syntax,
-# SIM simplifications, DJ Django rules, S bandit security rules.
+# pycodestyle/pyflakes (E W F), imports (I), bugbear (B), pyupgrade (UP), simplify (SIM), Django (DJ), bandit (S).
 select = ["E", "W", "F", "I", "B", "UP", "SIM", "DJ", "S"]
 
 [tool.ruff.lint.per-file-ignores]
@@ -75,10 +72,8 @@ select = ["E", "W", "F", "I", "B", "UP", "SIM", "DJ", "S"]
 # S105 stays: the seed command's shared password is for local demo data only.
 # TODO: fix E501, SIM108 and I001 in the seed command, then drop them here.
 "core/management/commands/seed.py" = ["S105", "E501", "SIM108", "I001"]
-# TODO: fix these pre-existing issues, then delete each entry. Import order
-# (I001) in files that predate the linter, alongside the format exclude list
-# above, and one nullable CharField (DJ001) whose fix needs a migration.
-# This list should only shrink; the test entries keep S101/S105/S106.
+# TODO: fix these pre-existing issues and delete each entry (should only shrink; tests keep S101/S105/S106).
+# I001: import order predating the linter. DJ001: a nullable CharField whose fix needs a migration.
 "accounts/admin.py" = ["I001"]
 "accounts/models.py" = ["I001"]
 "accounts/serializers.py" = ["I001"]
@@ -101,8 +96,7 @@ select = ["E", "W", "F", "I", "B", "UP", "SIM", "DJ", "S"]
 plugins = ["mypy_django_plugin.main", "mypy_drf_plugin.main"]
 exclude = ["/migrations/"]
 
-# Strict typing for the webhooks app (Task C); the existing code has no hints.
-# (mypy's `strict` is global-only, so its flags are listed for this module.)
+# Strict typing for the webhooks app only (existing code has no hints); `strict` itself is global-only.
 [[tool.mypy.overrides]]
 module = ["webhooks.*"]
 disallow_untyped_defs = true

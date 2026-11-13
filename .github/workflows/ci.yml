@@ -1,8 +1,6 @@
 name: CI
 
-# Runs on every push to a branch other than main, so each PR's branch is
-# checked as it changes. Works on GitHub Actions and on Forgejo Actions, which
-# reads .github/workflows when there's no .forgejo/workflows.
+# Every push except to main. Runs on GitHub and Forgejo Actions (which also reads .github/workflows).
 on:
   push:
     branches-ignore:
@@ -17,8 +15,7 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# Third-party actions are pinned to a full commit SHA, not a tag, because a tag
-# can be moved to point at different code. The comment names the release.
+# Actions are pinned to commit SHAs (tags can be moved); the comment names the release.
 jobs:
   backend:
     runs-on: ubuntu-latest
@@ -26,15 +23,12 @@ jobs:
       run:
         working-directory: backend
 
-    # GitHub runs this job on the VM, where the service's published port is on
-    # localhost. Forgejo's Docker runner runs the job in a container, where the
-    # service is reached by its name instead.
+    # GitHub runs jobs on the VM (service on localhost); Forgejo runs them in a container (service by name).
     env:
       DB_HOST: ${{ github.server_url == 'https://github.com' && 'localhost' || 'db' }}
       DB_PORT: "5432"
 
-    # Same image and credentials as docker-compose.yml; the tests create their
-    # own test database from these.
+    # Same image and credentials as docker-compose.yml; pytest creates its own test database.
     services:
       db:
         image: postgres:18
@@ -64,8 +58,7 @@ jobs:
       # --locked fails if uv.lock is out of step with pyproject.toml.
       - run: uv sync --locked
 
-      # The same gates as `task check` in Taskfile.dist.yml, as separate steps so
-      # a failure names the gate. Cheapest first.
+      # The `task check` gates, one step each so a failure names the gate. Cheapest first.
       - run: uv run ruff format --check .
       - run: uv run ruff check .
       - run: uv run deptry .
@@ -86,8 +79,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # pnpm first, so setup-node can cache its store. The version comes from
-      # packageManager in frontend/package.json.
+      # pnpm before setup-node so its store is cached; version from frontend/package.json packageManager.
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           package_json_file: frontend/package.json
