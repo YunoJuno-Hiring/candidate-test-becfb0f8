@@ -1,3 +1,4 @@
+import logging
 import uuid
 from typing import Any
 
@@ -8,6 +9,8 @@ from contracts.models import Contract
 
 from . import tasks
 from .models import WebhookEndpoint, WebhookPayload
+
+logger = logging.getLogger(__name__)
 
 PAYLOAD_VERSION = 1
 
@@ -32,10 +35,15 @@ def envelope(event_type: str, data: dict[str, Any]) -> dict[str, Any]:
 def emit(company: Company, event_type: str, data: dict[str, Any]) -> None:
     """Save one payload per endpoint of the company. Call inside the transaction making the change."""
     body = envelope(event_type, data)
+    queued = saved = 0
     for endpoint in WebhookEndpoint.objects.filter(company=company):
         payload = WebhookPayload.objects.create(endpoint=endpoint, url=endpoint.url, payload=body)
         if endpoint.status == WebhookEndpoint.Status.ACTIVE:
-            queue(payload)  # paused or disabled: saved, not sent
+            queue(payload)
+            queued += 1
+        else:
+            saved += 1  # paused or disabled: saved, not sent
+    logger.info('Event %s (%s) for company %s: %s queued, %s saved', body['id'], event_type, company.id, queued, saved)
 
 
 def emit_contract_created(contract: Contract) -> None:
@@ -69,3 +77,6 @@ def resume(endpoint: WebhookEndpoint) -> None:
     latest = endpoint.payloads.filter(status=WebhookPayload.Status.CREATED).order_by('-created_at', '-id').first()
     if latest:
         queue(latest)
+    logger.info(
+        'Webhook endpoint %s resumed; queued latest saved payload: %s', endpoint.id, latest.id if latest else None
+    )

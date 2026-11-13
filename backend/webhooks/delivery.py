@@ -2,6 +2,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import time
 from datetime import datetime
 
@@ -17,6 +18,8 @@ from . import services, tasks
 from .models import WebhookEndpoint, WebhookPayload
 from .schedule import EMAIL_AFTER_RETRY, GIVE_UP_AFTER, next_attempt_at
 from .validators import validate_webhook_url
+
+logger = logging.getLogger(__name__)
 
 TIMEOUT_SECONDS = 10
 MAX_ERROR_LENGTH = 500  # the destination controls error text, so don't store unbounded amounts of it
@@ -60,6 +63,7 @@ def deliver(payload: WebhookPayload, client: httpx.Client | None = None) -> None
 
 def succeed(payload: WebhookPayload, response_code: int) -> None:
     payload.transition(Status.DELIVERED, response_code=response_code)
+    logger.info('Webhook payload %s delivered to endpoint %s: HTTP %s', payload.id, payload.endpoint_id, response_code)
     endpoint = payload.endpoint
     # A success ends the incident, and re-enables a disabled endpoint; it never unpauses a paused one.
     WebhookEndpoint.objects.filter(pk=endpoint.pk).update(alerted_at=None)
@@ -76,13 +80,30 @@ def fail(payload: WebhookPayload, response_code: int | None, error: str) -> None
         payload.next_attempt_at = next_attempt_at(first_attempt_at, timezone.now(), retry=failures)
         payload.save(update_fields=['next_attempt_at'])
 
+        # Endpoint id, not URL: URLs can carry tokens in their path or query string.
+        outcome = f'HTTP {response_code}' if response_code else error[:200]
         if payload.next_attempt_at is None:
             # Given up after 7 days: stop sending until a success re-enables it. A paused endpoint stays paused.
             WebhookEndpoint.objects.filter(pk=endpoint.pk, status=WebhookEndpoint.Status.ACTIVE).update(
                 status=WebhookEndpoint.Status.DISABLED
             )
+            logger.error(
+                'Webhook payload %s gave up after %s attempts (%s); endpoint %s disabled',
+                payload.id,
+                failures,
+                outcome,
+                endpoint.id,
+            )
             return
         tasks.deliver_payload.using(run_after=payload.next_attempt_at).enqueue(payload.id)
+        logger.warning(
+            'Webhook payload %s to endpoint %s failed on attempt %s (%s); retrying at %s',
+            payload.id,
+            endpoint.id,
+            failures,
+            outcome,
+            payload.next_attempt_at,
+        )
 
     if failures - 1 >= EMAIL_AFTER_RETRY:
         alert_admins(endpoint, first_attempt_at + GIVE_UP_AFTER, error or f'HTTP {response_code}')
@@ -104,4 +125,5 @@ def alert_admins(endpoint: WebhookEndpoint, disable_at: datetime, last_error: st
         from_email=None,
         recipient_list=[admin.user.email for admin in admins],
     )
+    logger.info('Emailed %s admin(s) that endpoint %s is failing', len(admins), endpoint.id)
     # TODO: email again when we give up and disable the endpoint.

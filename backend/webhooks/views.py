@@ -1,4 +1,6 @@
+import logging
 from typing import Any
+from urllib.parse import urlsplit
 
 from django.db import transaction
 from django.db.models import QuerySet
@@ -17,6 +19,9 @@ from .models import WebhookEndpoint
 from .serializers import WebhookEndpointSerializer
 from .services import resume, send_test_event
 
+# Audit trail: who changed what, by id. Hosts rather than full URLs, which can carry tokens.
+logger = logging.getLogger(__name__)
+
 
 class IsCompanyAdmin(BasePermission):
     message = 'Only company admins can configure webhooks.'
@@ -32,6 +37,10 @@ def admin_company(request: Request) -> Company:
 def company_endpoints(request: Request) -> QuerySet[WebhookEndpoint]:
     # Every lookup goes through here, so another company's endpoint is simply a 404.
     return WebhookEndpoint.objects.filter(company=admin_company(request)).order_by('id')
+
+
+def host(url: str) -> str:
+    return urlsplit(url).hostname or ''
 
 
 def no_store(response: Response) -> Response:
@@ -51,6 +60,13 @@ class WebhookEndpointListCreateView(generics.ListCreateAPIView[WebhookEndpoint])
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         endpoint = serializer.save(company=admin_company(request))
+        logger.info(
+            'User %s created webhook endpoint %s for company %s (host %s)',
+            request.user.id,
+            endpoint.id,
+            endpoint.company_id,
+            host(endpoint.url),
+        )
         # The secret is in the create response only; listings never include it.
         return no_store(Response({**serializer.data, 'secret': endpoint.secret}, status=status.HTTP_201_CREATED))
 
@@ -63,11 +79,29 @@ class WebhookEndpointDetailView(generics.RetrieveUpdateDestroyAPIView[WebhookEnd
         return company_endpoints(self.request)
 
     def perform_update(self, serializer: BaseSerializer[WebhookEndpoint]) -> None:
-        resuming = serializer.instance is not None and serializer.instance.status != WebhookEndpoint.Status.ACTIVE
+        before = serializer.instance
+        old_host, old_status = (host(before.url), before.status) if before else ('', '')
         with transaction.atomic():
             endpoint = serializer.save()
-            if resuming and endpoint.status == WebhookEndpoint.Status.ACTIVE:
+            if old_status != WebhookEndpoint.Status.ACTIVE and endpoint.status == WebhookEndpoint.Status.ACTIVE:
                 resume(endpoint)  # sends only the most recent saved payload
+        logger.info(
+            'User %s updated webhook endpoint %s: host %s > %s, status %s > %s',
+            self.request.user.id,
+            endpoint.id,
+            old_host,
+            host(endpoint.url),
+            old_status,
+            endpoint.status,
+        )
+
+    def perform_destroy(self, instance: WebhookEndpoint) -> None:
+        payloads = instance.payloads.count()
+        endpoint_id = instance.id
+        instance.delete()
+        logger.info(
+            'User %s deleted webhook endpoint %s and its %s payload(s)', self.request.user.id, endpoint_id, payloads
+        )
 
 
 class RevealSecretView(APIView):
@@ -76,6 +110,7 @@ class RevealSecretView(APIView):
     def post(self, request: Request, pk: int) -> Response:
         # TODO: don't show the secret after creation; add rotation instead.
         endpoint = get_object_or_404(company_endpoints(request), pk=pk)
+        logger.warning('User %s revealed the secret for webhook endpoint %s', request.user.id, endpoint.id)
         return no_store(Response({'secret': endpoint.secret}))
 
 
@@ -84,4 +119,5 @@ class SendTestEventView(APIView):
 
     def post(self, request: Request, pk: int) -> Response:
         payload = send_test_event(get_object_or_404(company_endpoints(request), pk=pk))
+        logger.info('User %s sent test payload %s to webhook endpoint %s', request.user.id, payload.id, pk)
         return Response({'id': payload.id}, status=status.HTTP_202_ACCEPTED)

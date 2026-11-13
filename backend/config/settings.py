@@ -96,3 +96,11 @@ TASKS = {'default': {'BACKEND': 'django_tasks_db.DatabaseBackend', 'QUEUES': ['d
 WEBHOOK_DEV_ALLOWED_HOSTS = config(
     'WEBHOOK_DEV_ALLOWED_HOSTS', default='localhost,webhook-receiver' if DEBUG else '', cast=Csv()
 )
+
+# Print webhook delivery outcomes (info and up) wherever the worker or server runs.
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {'console': {'class': 'logging.StreamHandler'}},
+    'loggers': {'webhooks': {'handlers': ['console'], 'level': 'INFO'}},
+}

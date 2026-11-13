@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 from rest_framework.test import APIClient
 
@@ -127,3 +129,14 @@ def test_delete_takes_the_history_with_it(admin_client: APIClient, endpoint: Web
     assert admin_client.delete(f'{URL}{endpoint.id}/').status_code == 204
     assert not WebhookEndpoint.objects.exists()
     assert not WebhookPayload.objects.exists()
+
+
+@pytest.mark.django_db
+def test_revealing_a_secret_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture, admin_client: APIClient, endpoint: WebhookEndpoint
+) -> None:
+    with caplog.at_level(logging.WARNING, logger='webhooks'):
+        admin_client.post(f'{URL}{endpoint.id}/reveal-secret/')
+
+    assert f'revealed the secret for webhook endpoint {endpoint.id}' in caplog.text
+    assert endpoint.secret not in caplog.text

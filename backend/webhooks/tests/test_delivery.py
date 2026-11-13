@@ -2,6 +2,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import socket
 from collections.abc import Callable
 from datetime import timedelta
@@ -184,3 +185,19 @@ def test_a_success_does_not_unpause_a_paused_endpoint(
 
     endpoint.refresh_from_db()
     assert endpoint.status == WebhookEndpoint.Status.PAUSED
+
+
+@pytest.mark.django_db
+def test_failures_are_logged_by_id_without_the_url(
+    caplog: pytest.LogCaptureFixture, endpoint: WebhookEndpoint, new_payload: Callable[[], WebhookPayload]
+) -> None:
+    # Webhook URLs can carry tokens, so logs identify endpoints by id instead.
+    endpoint.url = 'https://8.8.8.8/hook?token=s3cret'
+    endpoint.save()
+    payload = new_payload()
+
+    with caplog.at_level(logging.WARNING, logger='webhooks'):
+        attempt(payload, client(503))
+
+    assert f'payload {payload.id} to endpoint {endpoint.id} failed on attempt 1 (HTTP 503)' in caplog.text
+    assert 's3cret' not in caplog.text
