@@ -16,6 +16,8 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'rest_framework.authtoken',
+    'django_tasks',
+    'django_tasks_db',
     'core',
     'accounts',
     'contracts',
@@ -86,6 +88,9 @@ LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
+
+# Background tasks queue in Postgres (the django.tasks backport), so enqueueing is part of the caller's transaction.
+TASKS = {'default': {'BACKEND': 'django_tasks_db.DatabaseBackend', 'QUEUES': ['default']}}
 
 # Webhook hosts exempt from the https and SSRF checks: the local receiver, and only in development.
 WEBHOOK_DEV_ALLOWED_HOSTS = config(

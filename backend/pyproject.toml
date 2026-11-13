@@ -1,7 +1,10 @@
 [project]
 dependencies = [
   "Django>=5.1,<6.0",
+  "django-tasks>=0.12.0",
+  "django-tasks-db[compat]>=0.13.0",
   "djangorestframework>=3.15,<4.0",
+  "httpx>=0.28.1",
   "psycopg[binary]>=3.2",
   "python-decouple>=3.8",
 ]
@@ -119,7 +122,7 @@ django_settings_module = "config.settings"
 known_first_party = ["accounts", "billing", "config", "contracts", "core", "webhooks"]
 
 [tool.deptry.per_rule_ignores]
-# Django loads the Postgres driver by name from settings, so no import shows it.
-DEP002 = ["psycopg"]
+# Django loads these by name from settings (the Postgres driver, the task backend), so no import shows them.
+DEP002 = ["psycopg", "django-tasks-db"]
 # Tests and conftest.py import pytest, which is rightly a dev dependency.
 DEP004 = ["pytest"]

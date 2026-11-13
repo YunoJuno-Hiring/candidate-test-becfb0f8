@@ -29,6 +29,8 @@ class WebhookEndpoint(models.Model):
     # Generated for each new endpoint, wherever it's created; never set by hand.
     secret = models.CharField(max_length=64, default=generate_secret, editable=False)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.ACTIVE)
+    # Set when admins are emailed about a failing incident; a success clears it, so one email per incident.
+    alerted_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self) -> str:
         return self.url
@@ -54,6 +56,8 @@ class WebhookPayload(models.Model):
     payload = models.JSONField()
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.CREATED)
     created_at = models.DateTimeField(auto_now_add=True)
+    # When a failed payload is due its next retry; None once delivered or given up.
+    next_attempt_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self) -> str:
         return f'{self.id}'

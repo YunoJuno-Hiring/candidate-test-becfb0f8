@@ -44,6 +44,12 @@ tasks:
     cmds:
       - uv run python manage.py runserver
 
+  worker:
+    desc: Start the background task worker (delivers webhooks).
+    dir: backend
+    cmds:
+      - uv run python manage.py db_worker
+
   frontend:
     desc: Start the frontend development server.
     dir: frontend
