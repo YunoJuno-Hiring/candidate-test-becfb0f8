@@ -35,7 +35,7 @@ def emit(company: Company, event_type: str, data: dict[str, Any]) -> None:
     """Save one payload per endpoint of the company. Call inside the transaction making the change."""
     body = envelope(event_type, data)
     queued = saved = 0
-    for endpoint in WebhookEndpoint.objects.filter(company=company):
+    for endpoint in WebhookEndpoint.objects.for_company(company):
         payload = WebhookPayload.objects.create(endpoint=endpoint, url=endpoint.url, payload=body)
         if endpoint.status == WebhookEndpoint.Status.ACTIVE:
             queue(payload)
@@ -74,7 +74,7 @@ def resume(endpoint: WebhookEndpoint) -> None:
     """Make an endpoint active again and send only its most recent saved payload; older ones stay as a record."""
     endpoint.status = WebhookEndpoint.Status.ACTIVE
     endpoint.save(update_fields=['status'])
-    latest = endpoint.payloads.filter(status=WebhookPayload.Status.CREATED).order_by('-created_at', '-id').first()
+    latest = endpoint.payloads.filter(status=WebhookPayload.Status.CREATED).newest_first().first()
     if latest:
         queue(latest)
     logger.info(

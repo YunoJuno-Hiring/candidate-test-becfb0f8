@@ -90,7 +90,7 @@ def succeed(payload: WebhookPayload, response_code: int, url: str = '') -> None:
     logger.info('Webhook payload %s delivered to endpoint %s: HTTP %s', payload.id, payload.endpoint_id, response_code)
     endpoint = payload.endpoint
     # A success ends the incident, and re-enables a disabled endpoint; it never unpauses a paused one.
-    WebhookEndpoint.objects.filter(pk=endpoint.pk).update(alerted_at=None)
+    endpoint.clear_alert()
     if endpoint.status == WebhookEndpoint.Status.DISABLED:
         services.resume(endpoint)
 
@@ -110,9 +110,7 @@ def fail(payload: WebhookPayload, response_code: int | None, error: str, url: st
         outcome = f'HTTP {response_code}' if response_code else error[: settings.WEBHOOK_ERROR_SUMMARY_LENGTH]
         if payload.next_attempt_at is None:
             # Given up after 7 days: stop sending until a success re-enables it. A paused endpoint stays paused.
-            WebhookEndpoint.objects.filter(pk=endpoint.pk, status=WebhookEndpoint.Status.ACTIVE).update(
-                status=WebhookEndpoint.Status.DISABLED
-            )
+            endpoint.disable()
             logger.error(
                 'Webhook payload %s gave up after %s attempts (%s); endpoint %s disabled',
                 payload.id,
@@ -151,8 +149,7 @@ def abandon(payload: WebhookPayload, reason: str) -> None:
 
 
 def alert_admins(endpoint: WebhookEndpoint, disable_at: datetime, last_error: str) -> None:
-    # The guarded update means only one worker sends, once per incident.
-    if not WebhookEndpoint.objects.filter(pk=endpoint.pk, alerted_at=None).update(alerted_at=timezone.now()):
+    if not endpoint.claim_alert():  # another worker already emailed about this incident
         return
     admins = CompanyAdmin.objects.filter(company=endpoint.company).select_related('user')
     try:
@@ -169,7 +166,7 @@ def alert_admins(endpoint: WebhookEndpoint, disable_at: datetime, last_error: st
         )
     except Exception:
         # Un-mark the incident, so the next failed retry tries the email again instead of never alerting.
-        WebhookEndpoint.objects.filter(pk=endpoint.pk).update(alerted_at=None)
+        endpoint.clear_alert()
         logger.exception('Could not email admins that webhook endpoint %s is failing; will retry', endpoint.id)
         return
     logger.info('Emailed %s admin(s) that endpoint %s is failing', len(admins), endpoint.id)

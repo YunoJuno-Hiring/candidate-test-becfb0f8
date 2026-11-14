@@ -3,16 +3,12 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import QuerySet
 from rest_framework import serializers
 
-from .models import WebhookEndpoint, WebhookPayload, WebhookPayloadEvent
+from .models import ATTEMPT_RESULTS, WebhookEndpoint, WebhookPayload, WebhookPayloadEvent
 from .validators import validate_webhook_url
 
 logger = logging.getLogger(__name__)
-
-# The moves that end an attempt; the others (to queued) just start one.
-ATTEMPT_RESULTS = [WebhookPayload.Status.DELIVERED, WebhookPayload.Status.FAILED]
 
 
 def attempt_result(event: WebhookPayloadEvent) -> dict[str, Any]:
@@ -23,10 +19,6 @@ def attempt_result(event: WebhookPayloadEvent) -> dict[str, Any]:
         'url': event.url,
         'at': event.created_at,
     }
-
-
-def attempts_newest_first() -> QuerySet[WebhookPayloadEvent]:
-    return WebhookPayloadEvent.objects.filter(to_status__in=ATTEMPT_RESULTS).order_by('-created_at', '-id')
 
 
 class WebhookEndpointSerializer(serializers.ModelSerializer[WebhookEndpoint]):
@@ -43,7 +35,7 @@ class WebhookEndpointSerializer(serializers.ModelSerializer[WebhookEndpoint]):
         if hasattr(endpoint, 'last_attempt'):
             latest = endpoint.last_attempt
         else:
-            latest = attempts_newest_first().filter(payload__endpoint=endpoint).first()
+            latest = WebhookPayloadEvent.objects.attempts().newest_first().filter(payload__endpoint=endpoint).first()
         return attempt_result(latest) if latest else None
 
     def validate_url(self, url: str) -> str:

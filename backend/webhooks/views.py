@@ -4,7 +4,6 @@ from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import OuterRef, QuerySet, Subquery
 from django.shortcuts import get_object_or_404
 from django.utils.cache import patch_cache_control
 from rest_framework import generics, status
@@ -16,8 +15,8 @@ from rest_framework.views import APIView
 
 from accounts.models import Company
 
-from .models import WebhookEndpoint, WebhookPayloadEvent
-from .serializers import WebhookDeliverySerializer, WebhookEndpointSerializer, attempts_newest_first
+from .models import WebhookEndpoint, WebhookEndpointQuerySet, WebhookPayloadEvent
+from .serializers import WebhookDeliverySerializer, WebhookEndpointSerializer
 from .services import resume, send_test_event
 
 # Audit trail: who changed what, by id. Hosts rather than full URLs, which can carry tokens.
@@ -35,9 +34,9 @@ def admin_company(request: Request) -> Company:
     return request.user.company_admin.company  # type: ignore[union-attr]  # IsCompanyAdmin guarantees it
 
 
-def company_endpoints(request: Request) -> QuerySet[WebhookEndpoint]:
+def company_endpoints(request: Request) -> WebhookEndpointQuerySet:
     # Every lookup goes through here, so another company's endpoint is simply a 404.
-    return WebhookEndpoint.objects.filter(company=admin_company(request)).order_by('id')
+    return WebhookEndpoint.objects.for_company(admin_company(request)).order_by('id')
 
 
 def host(url: str) -> str:
@@ -54,16 +53,15 @@ class WebhookEndpointListCreateView(generics.ListCreateAPIView[WebhookEndpoint])
     permission_classes = [IsCompanyAdmin]
     serializer_class = WebhookEndpointSerializer
 
-    def get_queryset(self) -> QuerySet[WebhookEndpoint]:
+    def get_queryset(self) -> WebhookEndpointQuerySet:
         return company_endpoints(self.request)
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         # Two queries however many endpoints (no N+1): each row carries its latest attempt's id, then all are fetched.
-        latest = attempts_newest_first().filter(payload__endpoint=OuterRef('pk')).values('id')[:1]
-        endpoints = list(self.get_queryset().annotate(last_attempt_id=Subquery(latest)))
+        endpoints = list(self.get_queryset().with_last_attempt_id())
         attempts = WebhookPayloadEvent.objects.in_bulk([e.last_attempt_id for e in endpoints if e.last_attempt_id])
         for endpoint in endpoints:
-            endpoint.last_attempt = attempts.get(endpoint.last_attempt_id)  # type: ignore[attr-defined]  # read by the serializer
+            endpoint.last_attempt = attempts.get(endpoint.last_attempt_id)
         return Response(self.get_serializer(endpoints, many=True).data)
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -89,7 +87,7 @@ class WebhookEndpointDetailView(generics.RetrieveUpdateDestroyAPIView[WebhookEnd
     permission_classes = [IsCompanyAdmin]
     serializer_class = WebhookEndpointSerializer
 
-    def get_queryset(self) -> QuerySet[WebhookEndpoint]:
+    def get_queryset(self) -> WebhookEndpointQuerySet:
         return company_endpoints(self.request)
 
     def perform_update(self, serializer: BaseSerializer[WebhookEndpoint]) -> None:
@@ -152,7 +150,5 @@ class DeliveriesView(APIView):
 
     def get(self, request: Request, pk: int) -> Response:
         endpoint = get_object_or_404(company_endpoints(request), pk=pk)
-        payloads = endpoint.payloads.order_by('-created_at', '-id').prefetch_related('events')[
-            : settings.WEBHOOK_RECENT_DELIVERIES
-        ]
+        payloads = endpoint.payloads.newest_first().prefetch_related('events')[: settings.WEBHOOK_RECENT_DELIVERIES]
         return Response(WebhookDeliverySerializer(payloads, many=True).data)
