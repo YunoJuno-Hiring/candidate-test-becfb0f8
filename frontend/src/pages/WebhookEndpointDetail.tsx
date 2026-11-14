@@ -92,6 +92,7 @@ function DeliveryRow({ delivery }: { delivery: WebhookDelivery }) {
             <td className="px-4 py-2" colSpan={3}>
               <StatusBadge status={a.status} />{' '}
               <span className="text-slate-600">{a.response_code ? `HTTP ${a.response_code}` : a.error || 'No response'}</span>
+              {a.url && <div className="mt-1 font-mono text-slate-400 break-all">{a.url}</div>}
             </td>
           </tr>
         ))}

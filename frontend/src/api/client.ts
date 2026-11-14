@@ -56,6 +56,7 @@ export interface WebhookAttempt {
   status: 'delivered' | 'failed'
   response_code: number | null
   error: string
+  url: string // where this attempt was sent: it can differ from the endpoint's current URL
   at: string
 }
 

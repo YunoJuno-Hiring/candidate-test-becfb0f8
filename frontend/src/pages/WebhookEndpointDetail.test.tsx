@@ -72,7 +72,14 @@ describe('WebhookEndpointDetail', () => {
         created_at: '2026-11-13T16:00:00Z',
         next_attempt_at: '2026-11-13T16:01:00Z',
         attempts: [
-          { attempt: 1, status: 'failed', response_code: null, error: 'Connection refused', at: '2026-11-13T16:00:01Z' },
+          {
+            attempt: 1,
+            status: 'failed',
+            response_code: null,
+            error: 'Connection refused',
+            url: 'https://old.example.com/hook',
+            at: '2026-11-13T16:00:01Z',
+          },
         ],
       },
     ])
@@ -81,6 +88,7 @@ describe('WebhookEndpointDetail', () => {
 
     expect(screen.getByText('Attempt 1')).toBeTruthy()
     expect(screen.getByText('Connection refused')).toBeTruthy()
+    expect(screen.getByText('https://old.example.com/hook')).toBeTruthy() // where that attempt went
   })
 
   it('offers no test event while paused', async () => {

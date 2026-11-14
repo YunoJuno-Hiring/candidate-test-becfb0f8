@@ -59,33 +59,34 @@ def deliver(payload: WebhookPayload, client: httpx.Client | None = None) -> None
         # Standard Webhooks allows several space-separated signatures; receivers accept any that verifies.
         'webhook-signature': ' '.join(sign(secret, msg_id, timestamp, body) for secret in endpoint.signing_secrets()),
     }
+    url = endpoint.url  # read once: what's validated, sent to and recorded must be the same URL
     try:
-        validate_webhook_url(endpoint.url)  # again at send time: DNS may have changed since it was saved
+        validate_webhook_url(url)  # again at send time: DNS may have changed since it was saved
         with (
             client or httpx.Client(timeout=settings.WEBHOOK_TIMEOUT_SECONDS) as http,
             # Streamed, not buffered: the status arrives first, and a success's body is never read at all.
-            http.stream('POST', endpoint.url, content=body, headers=headers) as response,  # no redirects followed
+            http.stream('POST', url, content=body, headers=headers) as response,  # no redirects followed
         ):
             code = response.status_code
             reply = '' if response.is_success else read_capped(response, settings.WEBHOOK_MAX_ERROR_LENGTH)
     except ValidationError as error:
-        return fail(payload, None, '; '.join(error.messages))
+        return fail(payload, None, '; '.join(error.messages), url)
     except httpx.HTTPError as error:
-        return fail(payload, None, str(error))
+        return fail(payload, None, str(error), url)
     except Exception as error:
         # Anything unexpected still fails into a retry, so a payload can never be stuck in queued. The admin sees only
         # the exception type; the traceback goes to the log.
         logger.exception('Unexpected error delivering webhook payload %s to endpoint %s', payload.id, endpoint.id)
-        return fail(payload, None, f'Unexpected error ({type(error).__name__})')
+        return fail(payload, None, f'Unexpected error ({type(error).__name__})', url)
 
     if 200 <= code < 300:
-        succeed(payload, code)
+        succeed(payload, code, url)
     else:
-        fail(payload, code, reply)
+        fail(payload, code, reply, url)
 
 
-def succeed(payload: WebhookPayload, response_code: int) -> None:
-    payload.transition(Status.DELIVERED, response_code=response_code)
+def succeed(payload: WebhookPayload, response_code: int, url: str = '') -> None:
+    payload.transition(Status.DELIVERED, response_code=response_code, url=url)
     logger.info('Webhook payload %s delivered to endpoint %s: HTTP %s', payload.id, payload.endpoint_id, response_code)
     endpoint = payload.endpoint
     # A success ends the incident, and re-enables a disabled endpoint; it never unpauses a paused one.
@@ -94,11 +95,11 @@ def succeed(payload: WebhookPayload, response_code: int) -> None:
         services.resume(endpoint)
 
 
-def fail(payload: WebhookPayload, response_code: int | None, error: str) -> None:
+def fail(payload: WebhookPayload, response_code: int | None, error: str, url: str = '') -> None:
     endpoint = payload.endpoint
     with transaction.atomic():  # the failure, its retry time and the queued retry are recorded together
         payload.transition(
-            Status.FAILED, response_code=response_code, error=error[: settings.WEBHOOK_MAX_ERROR_LENGTH]
+            Status.FAILED, response_code=response_code, error=error[: settings.WEBHOOK_MAX_ERROR_LENGTH], url=url
         )
         failures = payload.events.filter(to_status=Status.FAILED).count()  # the first attempt, then retries
         first_attempt_at = payload.events.filter(to_status=Status.QUEUED).earliest('created_at').created_at

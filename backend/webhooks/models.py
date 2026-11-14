@@ -71,6 +71,7 @@ class WebhookPayload(models.Model):
 
     # Deleting an endpoint deletes its delivery history too: a deliberate choice, to keep deletion simple.
     endpoint = models.ForeignKey(WebhookEndpoint, on_delete=models.CASCADE, related_name='payloads')
+    # Where the endpoint pointed when the event happened. Each attempt records where it actually went.
     url = models.URLField(max_length=2048)
     payload = models.JSONField()
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.CREATED)
@@ -81,7 +82,7 @@ class WebhookPayload(models.Model):
     def __str__(self) -> str:
         return f'{self.id}'
 
-    def transition(self, to_status: str, response_code: int | None = None, error: str = '') -> bool:
+    def transition(self, to_status: str, response_code: int | None = None, error: str = '', url: str = '') -> bool:
         """Move to to_status and record the event. False if another worker moved it first."""
         from_status = self.status
         if to_status not in self.TRANSITIONS.get(from_status, set()):
@@ -98,6 +99,7 @@ class WebhookPayload(models.Model):
                 to_status=to_status,
                 response_code=response_code,
                 error=error,
+                url=url,
             )
         self.status = to_status
         return True
@@ -111,6 +113,8 @@ class WebhookPayloadEvent(models.Model):
     to_status = models.CharField(max_length=10, choices=WebhookPayload.Status.choices)
     response_code = models.PositiveSmallIntegerField(null=True, blank=True)
     error = models.TextField(blank=True)
+    # The URL an attempt was sent to: the audit trail survives the endpoint's URL being changed. Blank if no attempt.
+    url = models.URLField(max_length=2048, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

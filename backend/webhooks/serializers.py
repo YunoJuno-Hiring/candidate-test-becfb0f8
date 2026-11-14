@@ -19,6 +19,7 @@ def attempt_result(event: WebhookPayloadEvent) -> dict[str, Any]:
         'status': event.to_status,
         'response_code': event.response_code,
         'error': event.error,
+        'url': event.url,
         'at': event.created_at,
     }
 

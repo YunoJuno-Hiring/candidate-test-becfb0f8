@@ -151,6 +151,32 @@ def test_a_successful_response_body_is_never_read(new_payload: Callable[[], Webh
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize('status', [200, 503])
+def test_each_attempt_records_the_url_it_was_sent_to(new_payload: Callable[[], WebhookPayload], status: int) -> None:
+    payload = new_payload()
+    attempt(payload, client(status))
+
+    assert payload.events.get(to_status__in=[Status.DELIVERED, Status.FAILED]).url == 'https://8.8.8.8/hook'
+
+
+@pytest.mark.django_db
+def test_after_a_url_change_retries_go_to_the_new_url_and_the_trail_shows_both(
+    endpoint: WebhookEndpoint, new_payload: Callable[[], WebhookPayload]
+) -> None:
+    seen: list[httpx.Request] = []
+    payload = new_payload()
+    attempt(payload, client(503, seen))
+    endpoint.url = 'https://1.1.1.1/hook'
+    endpoint.save()
+    attempt(payload, client(200, seen))
+
+    assert [str(request.url) for request in seen] == ['https://8.8.8.8/hook', 'https://1.1.1.1/hook']
+    attempts = payload.events.filter(to_status__in=[Status.DELIVERED, Status.FAILED]).order_by('created_at', 'id')
+    assert [event.url for event in attempts] == ['https://8.8.8.8/hook', 'https://1.1.1.1/hook']
+    assert payload.url == 'https://8.8.8.8/hook'  # where it pointed when the event happened
+
+
+@pytest.mark.django_db
 def test_an_unexpected_error_still_fails_into_a_retry(
     caplog: pytest.LogCaptureFixture, new_payload: Callable[[], WebhookPayload]
 ) -> None:
