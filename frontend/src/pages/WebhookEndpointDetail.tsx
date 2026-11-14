@@ -15,12 +15,16 @@ import { SecretBox } from '../components/SecretBox'
 
 const LOG_REFRESH_MS = 5000 // the log updates itself, so retries can be watched as they happen
 
-function UrlForm({ id, currentUrl }: { id: number; currentUrl: string }) {
+// onSaved reports to the page: this form remounts once the new URL is refetched, which would wipe its own message.
+function UrlForm({ id, currentUrl, onSaved }: { id: number; currentUrl: string; onSaved: () => void }) {
   const [url, setUrl] = useState(currentUrl)
   const queryClient = useQueryClient()
   const save = useMutation({
     mutationFn: () => updateWebhookEndpoint(id, { url }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['webhook-endpoint', id] }),
+    onSuccess: () => {
+      onSaved()
+      queryClient.invalidateQueries({ queryKey: ['webhook-endpoint', id] })
+    },
   })
 
   function handleSubmit(e: FormEvent) {
@@ -55,7 +59,6 @@ function UrlForm({ id, currentUrl }: { id: number; currentUrl: string }) {
           {fieldError(save.error, 'url', 'Failed to save the URL.')}
         </p>
       )}
-      {save.isSuccess && <p className="text-green-700 text-sm">URL saved. Send a test event to check it.</p>}
     </form>
   )
 }
@@ -181,7 +184,12 @@ export default function WebhookEndpointDetail() {
 
       <div className="bg-white border border-slate-200 rounded-lg p-6 space-y-5">
         {/* key resets the form when the saved URL changes */}
-        <UrlForm key={endpoint.url} id={id} currentUrl={endpoint.url} />
+        <UrlForm
+          key={endpoint.url}
+          id={id}
+          currentUrl={endpoint.url}
+          onSaved={() => setNotice('URL saved. Send a test event to check it.')}
+        />
 
         {endpoint.status === 'disabled' && (
           <p className="bg-red-50 border border-red-200 text-red-700 text-sm rounded px-3 py-2">

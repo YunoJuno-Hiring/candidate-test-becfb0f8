@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import WebhookEndpointDetail from './WebhookEndpointDetail'
@@ -89,6 +89,23 @@ describe('WebhookEndpointDetail', () => {
     expect(screen.getByText('Attempt 1')).toBeTruthy()
     expect(screen.getByText('Connection refused')).toBeTruthy()
     expect(screen.getByText('https://old.example.com/hook')).toBeTruthy() // where that attempt went
+  })
+
+  it('confirms a saved URL even though the form resets to it', async () => {
+    const NEW_URL = 'https://example.com/new-hook'
+    vi.mocked(api.updateWebhookEndpoint).mockResolvedValue({ ...ENDPOINT, url: NEW_URL })
+    renderPage()
+    const input = await screen.findByLabelText('Destination URL')
+    vi.mocked(api.fetchWebhookEndpoint).mockResolvedValue({ ...ENDPOINT, url: NEW_URL }) // the refetch after saving
+
+    fireEvent.change(input, { target: { value: NEW_URL } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    // Wait for the refetch to land: that's when the form remounts with the new URL.
+    await waitFor(() => expect(api.fetchWebhookEndpoint).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save' }).hasAttribute('disabled')).toBe(true))
+    expect(screen.getByText('URL saved. Send a test event to check it.')).toBeTruthy()
+    expect(api.updateWebhookEndpoint).toHaveBeenCalledWith(1, { url: NEW_URL })
   })
 
   it('offers no test event while paused', async () => {
