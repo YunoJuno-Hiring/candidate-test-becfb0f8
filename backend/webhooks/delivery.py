@@ -32,6 +32,19 @@ def sign(secret: str, msg_id: str, timestamp: int, body: bytes) -> str:
     return 'v1,' + base64.b64encode(digest).decode()
 
 
+def read_capped(response: httpx.Response, limit: int) -> str:
+    # Stop at limit bytes, so a destination can't make us hold a huge error body. iter_raw, not iter_bytes:
+    # decompressing a gzip "bomb" could still turn a few KB into gigabytes.
+    if response.is_stream_consumed:  # already fully in memory, so there's nothing left to protect against
+        return response.content[:limit].decode(errors='replace')
+    data = b''
+    for chunk in response.iter_raw():
+        data += chunk
+        if len(data) >= limit:
+            break
+    return data[:limit].decode(errors='replace')  # a character cut in half becomes a replacement character
+
+
 def deliver(payload: WebhookPayload, client: httpx.Client | None = None) -> None:
     """Make one attempt to send a queued payload, then record the outcome and what happens next."""
     endpoint = payload.endpoint
@@ -40,6 +53,7 @@ def deliver(payload: WebhookPayload, client: httpx.Client | None = None) -> None
     timestamp = int(time.time())
     headers = {
         'content-type': 'application/json',
+        'accept-encoding': 'identity',  # ask for an uncompressed reply: we only ever read a capped slice of it
         'webhook-id': msg_id,
         'webhook-timestamp': str(timestamp),
         # Standard Webhooks allows several space-separated signatures; receivers accept any that verifies.
@@ -47,8 +61,13 @@ def deliver(payload: WebhookPayload, client: httpx.Client | None = None) -> None
     }
     try:
         validate_webhook_url(endpoint.url)  # again at send time: DNS may have changed since it was saved
-        with client or httpx.Client(timeout=settings.WEBHOOK_TIMEOUT_SECONDS) as http:
-            response = http.post(endpoint.url, content=body, headers=headers)  # httpx doesn't follow redirects
+        with (
+            client or httpx.Client(timeout=settings.WEBHOOK_TIMEOUT_SECONDS) as http,
+            # Streamed, not buffered: the status arrives first, and a success's body is never read at all.
+            http.stream('POST', endpoint.url, content=body, headers=headers) as response,  # no redirects followed
+        ):
+            code = response.status_code
+            reply = '' if response.is_success else read_capped(response, settings.WEBHOOK_MAX_ERROR_LENGTH)
     except ValidationError as error:
         return fail(payload, None, '; '.join(error.messages))
     except httpx.HTTPError as error:
@@ -59,10 +78,10 @@ def deliver(payload: WebhookPayload, client: httpx.Client | None = None) -> None
         logger.exception('Unexpected error delivering webhook payload %s to endpoint %s', payload.id, endpoint.id)
         return fail(payload, None, f'Unexpected error ({type(error).__name__})')
 
-    if response.is_success:
-        succeed(payload, response.status_code)
+    if 200 <= code < 300:
+        succeed(payload, code)
     else:
-        fail(payload, response.status_code, response.text)
+        fail(payload, code, reply)
 
 
 def succeed(payload: WebhookPayload, response_code: int) -> None:

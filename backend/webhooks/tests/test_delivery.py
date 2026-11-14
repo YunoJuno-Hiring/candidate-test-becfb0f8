@@ -5,7 +5,7 @@ import json
 import logging
 import smtplib
 import socket
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import timedelta
 from typing import Any
 
@@ -113,6 +113,41 @@ def test_once_the_grace_period_ends_only_the_new_secret_signs(
     attempt(new_payload(), client(200, seen))
 
     assert seen[0].headers['webhook-signature'] == expected_signature(endpoint.secret, seen[0])
+
+
+def counted_body(chunks: int, consumed: list[int]) -> Iterator[bytes]:
+    # A response body that records how much of it was actually read.
+    for _ in range(chunks):
+        consumed.append(1)
+        yield b'x' * 1024
+
+
+@pytest.mark.django_db
+def test_a_huge_error_body_is_capped_and_not_read_in_full(new_payload: Callable[[], WebhookPayload]) -> None:
+    consumed: list[int] = []
+    seen: list[httpx.Request] = []
+
+    def huge(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(500, content=counted_body(10_240, consumed))  # 10 MB
+
+    payload = new_payload()
+    attempt(payload, httpx.Client(transport=httpx.MockTransport(huge)))
+
+    assert payload.events.get(to_status=Status.FAILED).error == 'x' * 500
+    assert len(consumed) == 1  # stopped after the first 1 KB chunk, not 10 MB
+    assert seen[0].headers['accept-encoding'] == 'identity'
+
+
+@pytest.mark.django_db
+def test_a_successful_response_body_is_never_read(new_payload: Callable[[], WebhookPayload]) -> None:
+    consumed: list[int] = []
+    payload = new_payload()
+    ok = httpx.MockTransport(lambda request: httpx.Response(200, content=counted_body(10, consumed)))
+    attempt(payload, httpx.Client(transport=ok))
+
+    assert payload.status == Status.DELIVERED
+    assert consumed == []
 
 
 @pytest.mark.django_db
