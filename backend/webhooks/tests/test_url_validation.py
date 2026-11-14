@@ -31,6 +31,17 @@ def test_hosts_resolving_to_internal_addresses_are_rejected(monkeypatch: pytest.
         validate_webhook_url('https://hooks.example.com/hook')
 
 
+@pytest.mark.parametrize('url', ['https://example.com:70000/hook', 'https://example.com:abc/hook'])
+def test_invalid_ports_are_rejected(url: str) -> None:
+    with pytest.raises(ValidationError, match='invalid port'):
+        validate_webhook_url(url)
+
+
+def test_hostnames_dns_cannot_encode_are_rejected() -> None:
+    with pytest.raises(ValidationError, match='Could not resolve'):
+        validate_webhook_url(f'https://{"a" * 64}.com/hook')  # DNS labels max out at 63 characters
+
+
 @override_settings(WEBHOOK_DEV_ALLOWED_HOSTS=['localhost', 'webhook-receiver'])
 def test_the_dev_allowlist_permits_the_local_receiver() -> None:
     validate_webhook_url('http://localhost:8027/hook')

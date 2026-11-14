@@ -116,6 +116,25 @@ def test_once_the_grace_period_ends_only_the_new_secret_signs(
 
 
 @pytest.mark.django_db
+def test_an_unexpected_error_still_fails_into_a_retry(
+    caplog: pytest.LogCaptureFixture, new_payload: Callable[[], WebhookPayload]
+) -> None:
+    def explode(request: httpx.Request) -> httpx.Response:
+        raise RuntimeError('something nobody planned for')
+
+    payload = new_payload()
+    with caplog.at_level(logging.ERROR, logger='webhooks'):
+        attempt(payload, httpx.Client(transport=httpx.MockTransport(explode)))
+
+    assert payload.status == Status.FAILED  # not stuck in queued
+    assert payload.next_attempt_at is not None
+    assert payload.events.get(to_status=Status.FAILED).error == 'Unexpected error (RuntimeError)'
+    [record] = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert f'Unexpected error delivering webhook payload {payload.id}' in record.getMessage()
+    assert record.exc_info is not None  # the traceback is in the log, not shown to the admin
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize('status', [302, 404, 500, 503])
 def test_anything_but_2xx_fails_and_schedules_a_retry(new_payload: Callable[[], WebhookPayload], status: int) -> None:
     payload = new_payload()

@@ -98,6 +98,14 @@ def test_invalid_urls_are_rejected(admin_client: APIClient) -> None:
 
 
 @pytest.mark.django_db
+def test_an_out_of_range_port_is_a_400_not_a_500(admin_client: APIClient) -> None:
+    resp = admin_client.post(URL, {'url': 'https://8.8.8.8:70000/hook'})
+
+    assert resp.status_code == 400
+    assert 'invalid port' in str(resp.data['url'])
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(('to_status', 'expected'), [('paused', 200), ('active', 200), ('disabled', 400)])
 def test_admins_can_pause_and_resume_but_not_disable(
     admin_client: APIClient, endpoint: WebhookEndpoint, to_status: str, expected: int

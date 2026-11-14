@@ -53,6 +53,11 @@ def deliver(payload: WebhookPayload, client: httpx.Client | None = None) -> None
         return fail(payload, None, '; '.join(error.messages))
     except httpx.HTTPError as error:
         return fail(payload, None, str(error))
+    except Exception as error:
+        # Anything unexpected still fails into a retry, so a payload can never be stuck in queued. The admin sees only
+        # the exception type; the traceback goes to the log.
+        logger.exception('Unexpected error delivering webhook payload %s to endpoint %s', payload.id, endpoint.id)
+        return fail(payload, None, f'Unexpected error ({type(error).__name__})')
 
     if response.is_success:
         succeed(payload, response.status_code)
