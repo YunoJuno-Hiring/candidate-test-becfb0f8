@@ -46,7 +46,7 @@ def emit(company: Company, event_type: str, data: dict[str, Any]) -> None:
 
 
 def emit_contract_created(contract: Contract) -> None:
-    # Thin on purpose: no names or rates; the consumer fetches the contract (authenticated) from the link.
+    # Thin on purpose: no names or rates. The full contract is behind the download link, not in the payload.
     emit(
         contract.company,
         'contract.created',
@@ -55,7 +55,8 @@ def emit_contract_created(contract: Contract) -> None:
             'status': contract.status,
             'start_date': str(contract.start_date),
             'end_date': str(contract.end_date),
-            'download_url': f'{settings.WEBHOOK_PUBLIC_BASE_URL}/api/contracts/{contract.id}/download/',
+            # Deliberately fake: stands in for a short-lived signed link to the contract PDF in object storage.
+            'download_url': 'https://fake-bucket.examplecloud.com/fake.pdf?signature=fake',
         },
     )
 

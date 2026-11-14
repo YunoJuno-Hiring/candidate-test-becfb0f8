@@ -103,8 +103,6 @@ WEBHOOK_DEV_ALLOWED_HOSTS = config(
 
 # Stamped on every payload envelope; receivers branch on it. From the environment, so dev can run ahead of prod.
 WEBHOOK_PAYLOAD_VERSION = config('WEBHOOK_PAYLOAD_VERSION', default=1, cast=int)
-# Base of links in payloads, such as contract.created's download_url. Differs per environment.
-WEBHOOK_PUBLIC_BASE_URL = config('WEBHOOK_PUBLIC_BASE_URL', default='https://app.example.com')
 
 # How long to wait for a destination before counting the attempt as failed.
 WEBHOOK_TIMEOUT_SECONDS = 10
