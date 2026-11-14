@@ -110,6 +110,21 @@ def fail(payload: WebhookPayload, response_code: int | None, error: str) -> None
         alert_admins(endpoint, first_attempt_at + settings.WEBHOOK_GIVE_UP_AFTER, error or f'HTTP {response_code}')
 
 
+def abandon(payload: WebhookPayload, reason: str) -> None:
+    # Failed for good without being sent: no retry is scheduled and admins aren't alerted.
+    with transaction.atomic():
+        payload.transition(Status.FAILED, error=reason)
+        payload.next_attempt_at = None
+        payload.save(update_fields=['next_attempt_at'])
+    logger.warning(
+        'Webhook payload %s to endpoint %s not sent and will not be retried: %s (endpoint is %s)',
+        payload.id,
+        payload.endpoint_id,
+        reason.lower(),
+        payload.endpoint.status,
+    )
+
+
 def alert_admins(endpoint: WebhookEndpoint, disable_at: datetime, last_error: str) -> None:
     # The guarded update means only one worker sends, once per incident.
     if not WebhookEndpoint.objects.filter(pk=endpoint.pk, alerted_at=None).update(alerted_at=timezone.now()):

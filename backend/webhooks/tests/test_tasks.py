@@ -1,3 +1,4 @@
+import logging
 from datetime import timedelta
 from typing import Any
 
@@ -27,8 +28,10 @@ def sent(monkeypatch: pytest.MonkeyPatch) -> list[tuple[int, str]]:
     return calls
 
 
-def make_payload(endpoint: WebhookEndpoint, *moves: str) -> WebhookPayload:
-    payload = WebhookPayload.objects.create(endpoint=endpoint, url=endpoint.url, payload={'id': 'evt_1'})
+def make_payload(endpoint: WebhookEndpoint, *moves: str, event_type: str = 'contract.created') -> WebhookPayload:
+    payload = WebhookPayload.objects.create(
+        endpoint=endpoint, url=endpoint.url, payload={'id': 'evt_1', 'type': event_type}
+    )
     for to_status in moves:
         payload.transition(to_status)
     return payload
@@ -87,6 +90,66 @@ def test_a_deleted_payload_is_skipped(endpoint: WebhookEndpoint, sent: list[tupl
     tasks.deliver_payload.call(payload.id)
 
     assert sent == []
+
+
+def set_status(endpoint: WebhookEndpoint, status: str) -> None:
+    endpoint.status = status
+    endpoint.save()
+
+
+def assert_failed_for_good(payload: WebhookPayload) -> None:
+    payload.refresh_from_db()
+    assert payload.status == Status.FAILED
+    assert payload.next_attempt_at is None  # shown as "gave up": no retry
+    assert payload.events.latest('created_at', 'id').error == 'Endpoint is not active'
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('moves', [(Status.QUEUED,), (Status.QUEUED, Status.FAILED)], ids=['queued', 'retrying'])
+def test_a_paused_endpoint_gets_nothing_and_the_payload_fails_for_good(
+    caplog: pytest.LogCaptureFixture,
+    endpoint: WebhookEndpoint,
+    sent: list[tuple[int, str]],
+    moves: tuple[str, ...],
+) -> None:
+    payload = make_payload(endpoint, *moves)
+    set_status(endpoint, WebhookEndpoint.Status.PAUSED)
+    DBTaskResult.objects.all().delete()
+
+    with caplog.at_level(logging.WARNING, logger='webhooks'):
+        tasks.deliver_payload.call(payload.id)
+
+    assert sent == []
+    assert_failed_for_good(payload)
+    assert jobs_for(payload) == []
+    assert f'payload {payload.id} to endpoint {endpoint.id} not sent' in caplog.text
+    assert 'endpoint is not active (endpoint is paused)' in caplog.text
+
+
+@pytest.mark.django_db
+def test_a_paused_endpoint_gets_no_test_events_either(endpoint: WebhookEndpoint, sent: list[tuple[int, str]]) -> None:
+    payload = make_payload(endpoint, Status.QUEUED, event_type='webhook.test')
+    set_status(endpoint, WebhookEndpoint.Status.PAUSED)
+
+    tasks.deliver_payload.call(payload.id)
+
+    assert sent == []
+    assert_failed_for_good(payload)
+
+
+@pytest.mark.django_db
+def test_a_disabled_endpoint_gets_test_events_but_nothing_else(
+    endpoint: WebhookEndpoint, sent: list[tuple[int, str]]
+) -> None:
+    event = make_payload(endpoint, Status.QUEUED)
+    test = make_payload(endpoint, Status.QUEUED, event_type='webhook.test')
+    set_status(endpoint, WebhookEndpoint.Status.DISABLED)
+
+    tasks.deliver_payload.call(event.id)
+    tasks.deliver_payload.call(test.id)
+
+    assert sent == [(test.id, Status.QUEUED)]  # a successful test is how a disabled endpoint is re-enabled
+    assert_failed_for_good(event)
 
 
 # Enqueueing: without these jobs nothing is ever sent or retried

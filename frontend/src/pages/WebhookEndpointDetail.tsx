@@ -219,8 +219,8 @@ export default function WebhookEndpointDetail() {
 
         {endpoint.status === 'paused' && (
           <p className="text-slate-500 text-xs">
-            Paused: new events are saved but not sent, and test events are off. Resuming sends only the most recent
-            one.
+            Paused: new events are saved but not sent, deliveries already queued or retrying fail without being
+            sent, and test events are off. Resuming sends only the most recent saved event.
           </p>
         )}
         {notice && <p className="text-green-700 text-sm">{notice}</p>}
