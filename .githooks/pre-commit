@@ -1,0 +1,25 @@
+#!/bin/sh
+# Blocks the commit unless the frontend audit/tests/build and every `task check` gate pass.
+# Enable once per clone: git config core.hooksPath .githooks (skip: git commit --no-verify)
+
+command -v docker >/dev/null 2>&1 || { echo "pre-commit: docker not found"; exit 1; }
+command -v task >/dev/null 2>&1 || { echo "pre-commit: task not found (https://taskfile.dev)"; exit 1; }
+command -v pnpm >/dev/null 2>&1 || { echo "pre-commit: pnpm not found"; exit 1; }
+
+# Frontend first (seconds). The build runs tsc + vite, catching type errors and broken imports.
+[ -d frontend/node_modules ] || { echo "pre-commit: run pnpm install in frontend/ first"; exit 1; }
+pnpm --dir frontend audit --audit-level high || { echo "pre-commit: frontend has high or critical advisories"; exit 1; }
+pnpm --dir frontend test || { echo "pre-commit: frontend tests failed"; exit 1; }
+pnpm --dir frontend build >/dev/null || { echo "pre-commit: frontend build failed"; exit 1; }
+
+# --wait only means "running"; poll pg_isready (up to ~30s) until Postgres accepts connections.
+docker compose up -d --wait || { echo "pre-commit: docker compose up failed"; exit 1; }
+
+tries=0
+until docker compose exec -T db pg_isready -U yunojuno >/dev/null 2>&1; do
+  tries=$((tries + 1))
+  [ "$tries" -ge 30 ] && { echo "pre-commit: Postgres not ready after 30s"; exit 1; }
+  sleep 1
+done
+
+task check || { echo "pre-commit: a backend gate failed (see above), fix it and commit again"; exit 1; }

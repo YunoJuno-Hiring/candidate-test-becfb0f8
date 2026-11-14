@@ -48,10 +48,38 @@ export interface Invoice {
   [key: string]: unknown
 }
 
+export type WebhookEndpointStatus = 'active' | 'paused' | 'disabled'
+export type WebhookDeliveryStatus = 'created' | 'queued' | 'delivered' | 'failed'
+
+// One attempt to send a payload: what the destination answered, and when.
+export interface WebhookAttempt {
+  status: 'delivered' | 'failed'
+  response_code: number | null
+  error: string
+  url: string // where this attempt was sent: it can differ from the endpoint's current URL
+  at: string
+}
+
 export interface WebhookEndpoint {
-  id: string | number
+  id: number
   url: string
-  active: boolean
+  status: WebhookEndpointStatus
+  last_delivery: WebhookAttempt | null
+}
+
+// Only the create response carries the secret; listings never do.
+export interface CreatedWebhookEndpoint extends WebhookEndpoint {
+  secret: string
+}
+
+export interface WebhookDelivery {
+  id: number
+  event_id: string
+  event_type: string
+  status: WebhookDeliveryStatus
+  created_at: string
+  next_attempt_at: string | null
+  attempts: (WebhookAttempt & { attempt: number })[]
 }
 
 function getToken(): string | null {
@@ -99,4 +127,10 @@ export const api = {
   patch: <T>(path: string, body: unknown) =>
     request<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+}
+
+// The API returns field errors as { url: ['…'] }; show the first one, or a fallback.
+export function fieldError(error: unknown, field: string, fallback: string): string {
+  const messages = error instanceof ApiError ? error.data[field] : undefined
+  return Array.isArray(messages) && messages.length ? String(messages[0]) : fallback
 }

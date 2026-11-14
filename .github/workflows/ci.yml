@@ -1,0 +1,101 @@
+name: CI
+
+# Every push except to main. Runs on GitHub and Forgejo Actions (which also reads .github/workflows).
+on:
+  push:
+    branches-ignore:
+      - main
+
+# Read-only token: CI only needs to check out the code.
+permissions:
+  contents: read
+
+# A newer push to the same branch cancels the run it supersedes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Actions are pinned to commit SHAs (tags can be moved); the comment names the release.
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    # GitHub runs jobs on the VM (service on localhost); Forgejo runs them in a container (service by name).
+    env:
+      DB_HOST: ${{ github.server_url == 'https://github.com' && 'localhost' || 'db' }}
+      DB_PORT: "5432"
+
+    # Same image and credentials as docker-compose.yml; pytest creates its own test database.
+    services:
+      db:
+        image: postgres:18
+        env:
+          POSTGRES_DB: yunojuno
+          POSTGRES_USER: yunojuno
+          POSTGRES_PASSWORD: yunojuno
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U yunojuno"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # uv reads backend/.python-version (3.14) and installs that Python itself.
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      # --locked fails if uv.lock is out of step with pyproject.toml.
+      - run: uv sync --locked
+
+      # The `task check` gates, one step each so a failure names the gate. Cheapest first.
+      - run: uv run ruff format --check .
+      - run: uv run ruff check .
+      - run: uv run deptry .
+      - run: uv run mypy .
+      - run: uv run python manage.py check --fail-level WARNING
+      - run: uv run python manage.py makemigrations --check --dry-run
+      - run: uv export --frozen --quiet --format requirements-txt | uv run pip-audit --strict --disable-pip --requirement /dev/stdin
+      - run: uv run pytest
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # pnpm before setup-node so its store is cached; version from frontend/package.json packageManager.
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          package_json_file: frontend/package.json
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      # --frozen-lockfile fails if pnpm-lock.yaml is out of step with package.json.
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm audit --audit-level high
+
+      - run: pnpm test
+
+      # Runs tsc then vite build, so type errors and broken imports fail CI.
+      - run: pnpm build

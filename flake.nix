@@ -14,8 +14,8 @@
       in {
         devShells.default = pkgs.mkShell {
           packages = with pkgs; [
-            # Python toolchain — matches the backend stack (Django 5.x on Python 3.11)
-            python311
+            # Python toolchain — matches the backend stack (Django 5.x on Python 3.14)
+            python314
             uv
 
             # Node toolchain — nodejs-slim deliberately excludes npm.

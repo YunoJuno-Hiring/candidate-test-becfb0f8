@@ -11,10 +11,15 @@ services:
       - postgres_data:/var/lib/postgresql
 
   mailpit:
-    image: axllent/mailpit
+    image: axllent/mailpit:v1.33
     ports:
       - "8025:8025"
       - "1025:1025"
+
+  webhook-receiver:
+    build: ./services/webhook-receiver
+    ports:
+      - 8027:8027
 
 volumes:
   postgres_data:

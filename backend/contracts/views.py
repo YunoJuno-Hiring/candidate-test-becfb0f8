@@ -1,8 +1,10 @@
+from django.db import transaction
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from .events import emit_contract_created
 from .models import Contract, TimesheetEntry
 from .serializers import (
     ContractCreateSerializer,
@@ -30,7 +32,10 @@ class ContractListView(APIView):
 
         serializer = ContractCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        contract = serializer.save(company=request.user.company_admin.company)
+        # One transaction: the contract and its webhook payloads are saved together, or neither is.
+        with transaction.atomic():
+            contract = serializer.save(company=request.user.company_admin.company)
+            emit_contract_created(contract)
         return Response(ContractSerializer(contract).data, status=status.HTTP_201_CREATED)
 
     def _get_queryset(self, user):

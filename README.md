@@ -12,7 +12,7 @@ Below, we outline 3 possible tasks. You should select **one** of them to complet
 
 ## Technology stack
 
-- **Backend:** Python 3.11 / Django + Django REST Framework
+- **Backend:** Python ~~3.11~~ 3.14 / Django + Django REST Framework
 - **Frontend:** React 18 + TypeScript + Vite, Tailwind for styling
 - **Database:** Postgres 18
 - **Email capture:** Mailpit on `localhost:8025` — anything sent via Django's email backend shows up in its web UI
@@ -26,7 +26,7 @@ Everything runs locally via docker-compose, there are no external dependencies o
 
 We provide a nix flake to set up a developer environment quickly with the right tool versions. If you're not familiar with nix or prefer to use another tool, here are the main tools and versions you'll need.
 
-- Python 3.11
+- Python ~~3.11~~ 3.14
 - uv 0.11
 - Node.js 24
 - pnpm 10.33
@@ -36,12 +36,21 @@ We provide a nix flake to set up a developer environment quickly with the right 
 Once those tools are installed you can use the following tasks provided by the [Taskfile](./Taskfile.dist.yml) to get going.
 
 ```bash
+cp backend/.env.example backend/.env   # local settings; allows the local webhook receiver over http
+pnpm --dir frontend install            # frontend dependencies
 task up        # boot the supporting stack
 task seed      # load seed data (run once after task up)
 task test      # run backend tests
 task backend   # run backend dev server
+task worker    # run the background worker (delivers webhooks; without it they stay "queued")
 task frontend  # run frontend dev server
 ```
+
+To see a webhook land: log in as the company admin, open Developer settings and add `http://localhost:8027/hook`. A test event arrives in the receiver within a few seconds, and creating a contract sends `contract.created`.
+
+- Without `backend/.env` that URL is rejected with "Webhook URLs must use https". That is deliberate: the https and SSRF checks are on by default, and the env file allows `localhost` for development only.
+- uv installs Python 3.14 for you if you don't have it.
+- `pnpm install` prints an "Ignored build scripts: esbuild" notice. It is harmless.
 
 - Frontend: `http://localhost:3000`
 - Backend API: `http://localhost:8000/api/`

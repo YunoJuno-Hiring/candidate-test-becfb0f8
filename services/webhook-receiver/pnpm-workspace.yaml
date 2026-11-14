@@ -1,0 +1,2 @@
+# Supply-chain guard: skip versions under 14 days old (in minutes); most malicious releases are pulled sooner.
+minimumReleaseAge: 20160

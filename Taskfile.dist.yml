@@ -19,11 +19,36 @@ tasks:
     cmds:
       - uv run pytest
 
+  check:
+    desc: Run every backend quality gate, cheapest first, then the tests.
+    dir: backend
+    cmds:
+      # uv.lock matches pyproject.toml
+      - uv lock --check
+      - uv run ruff format --check .
+      - uv run ruff check .
+      # Imported-but-undeclared and declared-but-unused dependencies
+      - uv run deptry .
+      - uv run mypy .
+      # Django's system checks, with warnings counted as failures
+      - uv run python manage.py check --fail-level WARNING
+      # Model changes that have no migration
+      - uv run python manage.py makemigrations --check --dry-run
+      # Known vulnerabilities in the locked dependencies
+      - uv export --frozen --quiet --format requirements-txt | uv run pip-audit --strict --disable-pip --requirement /dev/stdin
+      - uv run pytest
+
   backend:
     desc: Start the backend development server.
     dir: backend
     cmds:
       - uv run python manage.py runserver
+
+  worker:
+    desc: Start the background task worker (delivers webhooks).
+    dir: backend
+    cmds:
+      - uv run python manage.py db_worker
 
   frontend:
     desc: Start the frontend development server.
@@ -35,5 +60,5 @@ tasks:
     desc: Install webhook receiver dependencies and start the receiver.
     dir: services/webhook-receiver
     cmds:
-      - npm install --omit=dev --silent
+      - pnpm install --prod --frozen-lockfile --silent
       - node index.js
