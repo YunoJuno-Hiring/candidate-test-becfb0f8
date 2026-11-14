@@ -20,6 +20,12 @@ def generate_secret() -> str:
     return 'whsec_' + base64.b64encode(secrets.token_bytes(32)).decode()
 
 
+class EventType(models.TextChoices):
+    # Every event name we send. To add one: a member here, then services.emit() from the app that owns the change.
+    CONTRACT_CREATED = 'contract.created'
+    TEST = 'webhook.test'
+
+
 class WebhookEndpointQuerySet(models.QuerySet['WebhookEndpoint']):
     def for_company(self, company: Company) -> Self:
         return self.filter(company=company)

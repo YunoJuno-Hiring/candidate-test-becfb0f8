@@ -6,10 +6,9 @@ from django.conf import settings
 from django.utils import timezone
 
 from accounts.models import Company
-from contracts.models import Contract
 
 from . import tasks
-from .models import WebhookEndpoint, WebhookPayload
+from .models import EventType, WebhookEndpoint, WebhookPayload
 
 logger = logging.getLogger(__name__)
 
@@ -45,26 +44,10 @@ def emit(company: Company, event_type: str, data: dict[str, Any]) -> None:
     logger.info('Event %s (%s) for company %s: %s queued, %s saved', body['id'], event_type, company.id, queued, saved)
 
 
-def emit_contract_created(contract: Contract) -> None:
-    # Thin on purpose: no names or rates. The full contract is behind the download link, not in the payload.
-    emit(
-        contract.company,
-        'contract.created',
-        {
-            'id': contract.id,
-            'status': contract.status,
-            'start_date': str(contract.start_date),
-            'end_date': str(contract.end_date),
-            # Deliberately fake: stands in for a short-lived signed link to the contract PDF in object storage.
-            'download_url': 'https://fake-bucket.examplecloud.com/fake.pdf?signature=fake',
-        },
-    )
-
-
 def send_test_event(endpoint: WebhookEndpoint) -> WebhookPayload:
     # Queued even when disabled: a test is how an admin proves it works again. The view refuses paused ones.
     payload = WebhookPayload.objects.create(
-        endpoint=endpoint, url=endpoint.url, payload=envelope('webhook.test', {'endpoint_id': endpoint.id})
+        endpoint=endpoint, url=endpoint.url, payload=envelope(EventType.TEST, {'endpoint_id': endpoint.id})
     )
     queue(payload)
     return payload

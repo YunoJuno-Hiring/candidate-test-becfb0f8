@@ -4,8 +4,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from webhooks.services import emit_contract_created
-
+from .events import emit_contract_created
 from .models import Contract, TimesheetEntry
 from .serializers import (
     ContractCreateSerializer,

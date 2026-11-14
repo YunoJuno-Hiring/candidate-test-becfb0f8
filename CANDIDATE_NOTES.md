@@ -1,21 +1,12 @@
+## Preamble
 
-I started the task on Friday around other things I had on and completed it on Saturday. In total, probably about 4 hours. The first 1.5 hours was the baseline hardening and security work. The notes didn't call for that, but this is a "head of" role and it would be my responsibility to ensure that SDLC standards (data protection (*GDPR art. 28, 43*), Cyber Essentials, ISO 27001) and security policy duties are being met. To that end, I spent time doing it as that's part of the role - making judgment calls.
+The steps are in the README's "Getting started". I added three it didn't have: copying `backend/.env.example` to `backend/.env`, installing the frontend dependencies, and `task worker`, which delivers the webhooks.
 
-## AI usage & approach
 
-I use Claude Code. I direct, it writes. I started off with a blank AGENTS.md file (Claude now supports that) and added to it as I went.
+I started the task on Friday around other things I had on and completed it on Saturday. In total, probably about 5 hours. The first 1.5 hours was the baseline hardening and security work. The brief says there's no need to fix rough edges outside the task, but in a head-of role the buck for SDLC standards (data protection (*GDPR art. 28, 43*), Cyber Essentials, ISO 27001) and security policy would stop with me, so I'd rather lead by example.
 
-There was a time limit on this task so I leaned heavily into using AI for this, deciding that showing fuller features with approach was better than a limited feature set but delightfully terse and teeny pull requests. If this was a senior or staff position I'd have laid off the AI and gone more hand written and left out a lot of the security and quality gating. Zed with the inline models I really like.
-
-However this is a "head of" role, and I wanted to show that it's OK to use AI, it's not always the most succinct, but it can produce perfectly functional code. Essentially, I wanted to set the lowest standard acceptable so that as a lead, there's a line in the sand from which to maintain quality.
-
-I'm not going to be the best engineer on the team - if I was I'd be wasted in a "head of.." role, my skills are balanced over the full domain. I can engineer well enough to ship and I'm confident in my ability to ensure security, but I also need to lead and be responsible for ensuring quality, so this submission is a reasonable baseline of that.
-
-So if you're looking for the best engineer on the team for this role - that's not me. I'm a generalist / polymath and my strength is the balance of skill I bring over all domains this role requires.
 
 ## What I built and why
-
-### Choice: Task C
 
 I've spent the last year delivering (solo) on a heavily async driven message queue integrating two state machines (Shopify via GraphQL) and a book distributor's enterprisey CSV / XML inventory and ordering system. That was in Elixir, Postgres, with Oban as a message queue and driven partially by Shopify's webhook system, deployed over AWS and fly.io.
 
@@ -27,27 +18,30 @@ Note: I calculated these before I added this file.
 
 | Stage                      | Code (+/-)      | of which tests | Lockfiles (+/-)  |
 | -------------------------- | --------------- | -------------- | ---------------- |
-| PR1 security baseline      | +212 / -18      | +33            | +1574 / -358     |
-| PR2 quality gates          | +162 / -44      | +1             | +796 / -0        |
+| PR1 security baseline      | +212 / -18      | +22            | +1574 / -358     |
+| PR2 quality gates          | +162 / -44      | -              | +796 / -0        |
 | PR3 webhooks backend       | +1411 / -24     | +708           | +91 / -1         |
 | PR4 webhooks front end     | +565 / -53      | +137           | -                |
 | PR5 tidy up & review fixes | +798 / -112     | +454           | +33 / -22        |
-| **Total**                  | **+2992 / -95** | **+1319**      | **+2474 / -361** |
-|                            |                 |                |                  |
+| Final pre-review fixes     | +53 / -71       | -              | -                |
+| **Net change**             | **+2976 / -97** | **+1309**      | **+2474 / -361** |
 
-And by area, as a share of the 5,466 lines added:
+Each stage row is that PR's own diff, so the rows add up to more than the net change: later PRs rewrote lines that earlier ones added.
+
+And by area, as a share of the 5,450 lines added:
 
 | Area                                         | Lines added | Share  |
 | -------------------------------------------- | ----------- | ------ |
-| Backend - function                           | 798         | 14.6%  |
-| Backend - tests                              | 1,111       | 20.3%  |
-| Frontend - function                          | 446         | 8.2%   |
+| Backend - function                           | 807         | 14.8%  |
+| Backend - tests                              | 1,111       | 20.4%  |
+| Frontend - function                          | 448         | 8.2%   |
 | Frontend - tests                             | 198         | 3.6%   |
-| Other (lockfiles, config, CI, migrations)    | 2,913       | 53.3%  |
-| **Total**                                    | **5,466**   | **100%** |
+| Other (lockfiles, config, CI, migrations)    | 2,886       | 53.0%  |
+| **Total**                                    | **5,450**   | **100%** |
 
 Of the "other", 2,474 lines (45% of the whole PR) are generated lockfiles. The rest is config, CI, the pre-commit hook and generated migrations. Backend tests outweigh backend code.
 
+## Key Implementation Notes
 
 ### Security & Quality
 
@@ -55,7 +49,7 @@ I spent time hardening the baselines and generally reviewing the security of eve
 
 What got upgraded:
 
-* Python 3.11 > 3.14 (3.11 is next to reach end of life). The README brief still says 3.11, I left the brief as written.
+* Python 3.11 > 3.14 (3.11 is next to reach end of life). The README now says 3.14, with the 3.11 struck through so the change to the brief is visible.
 * Django > 5.2.18 LTS, DRF > 3.18.3 and sqlparse > 0.6.0 to clear known vulnerabilities
 * the webhook receiver moved off end-of-life Node 20 to Node 24, stopped running as root, and installs with pnpm from a lockfile (no npm)
 * Mailpit pinned to v1.33 instead of an untagged latest
@@ -122,7 +116,7 @@ Contract created - reason is legal. If a timesheet is submitted before a contrac
 ### Decisions around payloads & delivery
 
 * WebhookPayloads are a basic state machine: created > queued > [delivered | failed], and failed > queued for retries.
-* **POINT 1:** Async delivery - didn't want to bump Django to version 6 to get the builtin queue features, so brought in django-tasks, the backport (with django-tasks-db as the Postgres-backed queue - Django 6 only ships test backends, so it would have needed that anyway). I was tempted by Oban as I've been using that heavily in production on an Elixir app for the last year and it became available in Python recently. However, that's the kind of thing for personal time. Keeping things predictable and operational is a part of maintaining a solid platform.
+* Async delivery - didn't want to bump Django to version 6 to get the builtin queue features, so brought in django-tasks, the backport (with django-tasks-db as the Postgres-backed queue - Django 6 only ships test backends, so it would have needed that anyway). I was tempted by Oban as I've been using that heavily in production on an Elixir app for the last year and it became available in Python recently. However, that's the kind of thing for personal time. Keeping things predictable and operational is a part of maintaining a solid platform.
 * Failures retry with a capped back off (WEBHOOK_RETRY_DELAYS): 1m, 5m, 15m, 1h, 2h, 4h, then every 8h, with ±10% jitter. After 7 days it gives up and disables the endpoint. Admins are emailed once per incident after the 4th failed retry.
 * At least once delivery. Consumers can dedupe webhooks on the id as this remains constant over retries and sends.
 * When a disabled or paused endpoint is re-enabled only the most recently saved event is queued for sending.
@@ -132,7 +126,7 @@ Contract created - reason is legal. If a timesheet is submitted before a contrac
 * Payloads are signed with the Standard Webhooks HMAC-SHA256 pattern (`v1,WOTIahylNQuf92CKHVEIzW6TIseG3R6E8Gi6J1Y+TLw=`)
 * the headers carry the signing information - webhook-id, webhook-timestamp & webhook-signature
 * each delivery attempt records the URL it was actually sent to, so the audit trail survives someone changing the endpoint URL later
-* the payload is structured and versioned (**POINT 5**) as below. This makes the path to altering payloads trivial. The version is a setting (WEBHOOK_PAYLOAD_VERSION) so dev can run ahead of prod. I didn't do a JSON schema and test contracts in this app. It's a "thin" payload - the download link is a deliberately fake placeholder for a short-lived signed link to the contract PDF.
+* the payload is structured and versioned as below. This makes the path to altering payloads trivial. The version is a setting (WEBHOOK_PAYLOAD_VERSION) so dev can run ahead of prod. I didn't do a JSON schema and test contracts in this app. It's a "thin" payload - the download link is a deliberately fake placeholder for a short-lived signed link to the contract PDF.
 
 ```
 {
@@ -171,23 +165,6 @@ I really haven't used TypeScript or React in anger that much. I tend to pick a t
 >  ℹ️  Note: at this point, if this wasn't constrained by "one pull request" I'd have made the work so far its own dedicated PR. I'd be looking to make sure it went incident free and the migrations applied and there was no drama. This would have been PR4. If this was a real feature deployment, this would be where we'd open it up to everyone or select users. Beta release.
 
 
-### tidy up
-
-* tests missing on tasks.py - added those
-* standard Django pattern stuff - moved any CONSTANTS to settings. Updated the AGENTS.md to reflect that
-* added an .env.example file - small things like this can smooth people's onboarding and make for easy "first PRs" for new team members.
-* A full security scan and code review by the AI - fixed these:
-	* high: Pausing didn't stop deliveries that were already queued or waiting to retry
-	* high: Unexpected exceptions left payloads stuck in "queued" forever, and an out-of-range port caused a 500
-	* med: Destination response bodies were read in full. Caught a buffer that would have allowed GBs into memory, so switched to a stream which ensures we don't inflate memory by buffering responses we don't need to read. It reads raw bytes, so a gzip bomb can't get round the cap either.
-	* med: the contract download link pointed at a route that doesn't exist - now an obvious placeholder
-	* med: the payload's URL was saved but never used - each attempt now records where it was actually sent
-	* low: N+1 on the endpoint list: get_last_delivery ran one query per endpoint, so N endpoints meant N+1 queries. It's now 2, however many endpoints there are, with a test that fails if it ever creeps back.
-	* low: a stale worker could schedule a second retry chain - now it stops if another worker already recorded the outcome
-	* low: the "URL saved" message never showed, and the local test URL needed a setting that's now in .env.example
-	* moved common queries into "manager" classes and updated AGENTS.md to reflect that. The models file is now borderline for splitting up into a dedicated `managers` module, left as is.
-
-
 ### remaining review points
 
 I left one as discussion.
@@ -197,6 +174,40 @@ I left one as discussion.
 >  ℹ️  Note: at this point this would be the final PR before going public with the feature. General availability. This would be PR5 and if you're using semantic versioning a minor bump.
 
 
+
+
+## Workflow
+
+I use Claude Code. I direct, it writes. I started off with a blank AGENTS.md file (Claude now supports that) and added to it as I went.
+
+There was a time limit on this task so I leaned heavily into using AI for this, deciding that showing fuller features with approach was better than a limited feature set but delightfully terse and teeny pull requests. Zed with the inline models I really like.
+
+I treated this as I would in the role: secure the baseline first, set up quality gates, then ship the feature in small reviewable steps.
+
+I leaned on AI for the React, which I haven't used in anger, and directed every design decision myself.
+
+
+
+
+
+## Next steps
+
+With another four hours, in this order:
+
+1. A sweep for payloads stuck in "queued". If a worker dies mid-delivery nothing picks the payload up again; a periodic job that requeues anything queued for too long closes that gap.
+2. Pin the connection to the address that was validated. This is the DNS rebinding point above: today the URL is checked and then httpx resolves the name again.
+3. Email admins a second time when we give up and disable the endpoint. There's a TODO for it in `delivery.py`.
+4. Encrypt the signing secrets at rest in the row - we can assume all production disks are encrypted at rest as a baseline.
+5. A JSON schema for the payload, with contract tests, so a version bump is a deliberate act.
+6. Playwright end-to-end tests over create, test event, pause, rotate and delete.
+
+After that: prove endpoint ownership with a challenge before sending real events, and serve the policy values the UI restates (24 hour rotation grace, 7 day give-up, 20 row log) from the API.
+
+For whoever builds the other two tasks: a new event is one `EventType` member in `webhooks/models.py` plus a call to `webhooks.services.emit()` inside your transaction. `contracts/events.py` is the example. Background work goes on the same queue with `@task()` and `.enqueue()`.
+
+On a real team I'd have asked about a few of these decisions. Here I made the call and flagged the ones I'd want to discuss.
+
+Finally, I'd also edit this file. Apologies for the length, but there wasn't time to write a short version.
 
 And that's where I left the task. 
 

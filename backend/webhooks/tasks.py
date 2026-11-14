@@ -3,7 +3,7 @@ import logging
 from django_tasks import task
 
 from . import delivery
-from .models import WebhookEndpoint, WebhookPayload
+from .models import EventType, WebhookEndpoint, WebhookPayload
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ def deliver_payload(payload_id: int) -> None:
         return
     # Paused means nothing is sent. Disabled still takes test events: a successful one is how it's re-enabled.
     status = payload.endpoint.status
-    is_test = payload.payload.get('type') == 'webhook.test'
+    is_test = payload.payload.get('type') == EventType.TEST
     if status == WebhookEndpoint.Status.PAUSED or (status == WebhookEndpoint.Status.DISABLED and not is_test):
         delivery.abandon(payload, 'Endpoint is not active')
         return

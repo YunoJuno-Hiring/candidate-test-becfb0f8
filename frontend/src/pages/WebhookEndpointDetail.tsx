@@ -277,7 +277,9 @@ export default function WebhookEndpointDetail() {
             </table>
           </div>
         )}
-        <p className="text-slate-400 text-xs mt-2">The 20 most recent deliveries. Refreshes every 5 seconds.</p>
+        <p className="text-slate-400 text-xs mt-2">
+          The 20 most recent deliveries. Refreshes every {LOG_REFRESH_MS / 1000} seconds.
+        </p>
       </div>
     </div>
   )
