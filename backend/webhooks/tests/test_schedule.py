@@ -1,8 +1,9 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from django.conf import settings
 
-from webhooks.schedule import GIVE_UP_AFTER, next_attempt_at, retry_delay
+from webhooks.schedule import next_attempt_at, retry_delay
 
 EXPECTED = [
     timedelta(minutes=1),
@@ -36,6 +37,6 @@ def test_gives_up_after_7_days_and_about_27_attempts() -> None:
     while (later := next_attempt_at(first, attempts[-1], retry=len(attempts), jitter=False)) is not None:
         attempts.append(later)
 
-    assert timedelta(days=7) == GIVE_UP_AFTER
-    assert attempts[-1] - first <= GIVE_UP_AFTER
+    assert timedelta(days=7) == settings.WEBHOOK_GIVE_UP_AFTER
+    assert attempts[-1] - first <= settings.WEBHOOK_GIVE_UP_AFTER
     assert len(attempts) == 27

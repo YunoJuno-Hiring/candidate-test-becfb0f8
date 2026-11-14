@@ -5,15 +5,12 @@
 # delivery-log models belong in this file.
 import base64
 import secrets
-from datetime import timedelta
 
+from django.conf import settings
 from django.db import models, transaction
 from django.utils import timezone
 
 from accounts.models import Company
-
-# How long the old secret keeps signing after a rotation, so receivers can switch over without failed deliveries.
-ROTATION_GRACE = timedelta(hours=24)
 
 
 def generate_secret() -> str:
@@ -46,7 +43,7 @@ class WebhookEndpoint(models.Model):
     def rotate_secret(self) -> None:
         # Only one previous secret is kept: rotating twice within the grace period drops the oldest.
         self.previous_secret = self.secret
-        self.previous_secret_expires_at = timezone.now() + ROTATION_GRACE
+        self.previous_secret_expires_at = timezone.now() + settings.WEBHOOK_SECRET_ROTATION_GRACE
         self.secret = generate_secret()
         self.save(update_fields=['secret', 'previous_secret', 'previous_secret_expires_at'])
 

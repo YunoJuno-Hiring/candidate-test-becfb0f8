@@ -7,6 +7,7 @@ import time
 from datetime import datetime
 
 import httpx
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.mail import send_mail
 from django.db import transaction
@@ -16,13 +17,10 @@ from accounts.models import CompanyAdmin
 
 from . import services, tasks
 from .models import WebhookEndpoint, WebhookPayload
-from .schedule import EMAIL_AFTER_RETRY, GIVE_UP_AFTER, next_attempt_at
+from .schedule import next_attempt_at
 from .validators import validate_webhook_url
 
 logger = logging.getLogger(__name__)
-
-TIMEOUT_SECONDS = 10
-MAX_ERROR_LENGTH = 500  # the destination controls error text, so don't store unbounded amounts of it
 
 Status = WebhookPayload.Status
 
@@ -49,7 +47,7 @@ def deliver(payload: WebhookPayload, client: httpx.Client | None = None) -> None
     }
     try:
         validate_webhook_url(endpoint.url)  # again at send time: DNS may have changed since it was saved
-        with client or httpx.Client(timeout=TIMEOUT_SECONDS) as http:
+        with client or httpx.Client(timeout=settings.WEBHOOK_TIMEOUT_SECONDS) as http:
             response = http.post(endpoint.url, content=body, headers=headers)  # httpx doesn't follow redirects
     except ValidationError as error:
         return fail(payload, None, '; '.join(error.messages))
@@ -75,14 +73,16 @@ def succeed(payload: WebhookPayload, response_code: int) -> None:
 def fail(payload: WebhookPayload, response_code: int | None, error: str) -> None:
     endpoint = payload.endpoint
     with transaction.atomic():  # the failure, its retry time and the queued retry are recorded together
-        payload.transition(Status.FAILED, response_code=response_code, error=error[:MAX_ERROR_LENGTH])
+        payload.transition(
+            Status.FAILED, response_code=response_code, error=error[: settings.WEBHOOK_MAX_ERROR_LENGTH]
+        )
         failures = payload.events.filter(to_status=Status.FAILED).count()  # the first attempt, then retries
         first_attempt_at = payload.events.filter(to_status=Status.QUEUED).earliest('created_at').created_at
         payload.next_attempt_at = next_attempt_at(first_attempt_at, timezone.now(), retry=failures)
         payload.save(update_fields=['next_attempt_at'])
 
         # Endpoint id, not URL: URLs can carry tokens in their path or query string.
-        outcome = f'HTTP {response_code}' if response_code else error[:200]
+        outcome = f'HTTP {response_code}' if response_code else error[: settings.WEBHOOK_ERROR_SUMMARY_LENGTH]
         if payload.next_attempt_at is None:
             # Given up after 7 days: stop sending until a success re-enables it. A paused endpoint stays paused.
             WebhookEndpoint.objects.filter(pk=endpoint.pk, status=WebhookEndpoint.Status.ACTIVE).update(
@@ -106,8 +106,8 @@ def fail(payload: WebhookPayload, response_code: int | None, error: str) -> None
             payload.next_attempt_at,
         )
 
-    if failures - 1 >= EMAIL_AFTER_RETRY:
-        alert_admins(endpoint, first_attempt_at + GIVE_UP_AFTER, error or f'HTTP {response_code}')
+    if failures - 1 >= settings.WEBHOOK_EMAIL_AFTER_RETRY:
+        alert_admins(endpoint, first_attempt_at + settings.WEBHOOK_GIVE_UP_AFTER, error or f'HTTP {response_code}')
 
 
 def alert_admins(endpoint: WebhookEndpoint, disable_at: datetime, last_error: str) -> None:
@@ -120,7 +120,7 @@ def alert_admins(endpoint: WebhookEndpoint, disable_at: datetime, last_error: st
             subject=f'Webhook endpoint failing: {endpoint.url}',
             message=(
                 f'Deliveries to {endpoint.url} have been failing for over an hour.\n'
-                f'Last error: {last_error[:200]}\n\n'
+                f'Last error: {last_error[: settings.WEBHOOK_ERROR_SUMMARY_LENGTH]}\n\n'
                 f'We will keep retrying. If it is still failing on {disable_at:%d %B %Y at %H:%M} UTC, '
                 'the endpoint will be disabled until a test event succeeds.'
             ),

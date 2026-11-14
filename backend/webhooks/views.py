@@ -2,6 +2,7 @@ import logging
 from typing import Any
 from urllib.parse import urlsplit
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
@@ -18,8 +19,6 @@ from accounts.models import Company
 from .models import WebhookEndpoint
 from .serializers import WebhookDeliverySerializer, WebhookEndpointSerializer
 from .services import resume, send_test_event
-
-RECENT_DELIVERIES = 20
 
 # Audit trail: who changed what, by id. Hosts rather than full URLs, which can carry tokens.
 logger = logging.getLogger(__name__)
@@ -114,7 +113,7 @@ class RotateSecretView(APIView):
     permission_classes = [IsCompanyAdmin]
 
     def post(self, request: Request, pk: int) -> Response:
-        # A secret is only ever shown once. Admins who lose it rotate: the old one keeps signing for ROTATION_GRACE.
+        # A secret is only ever shown once. Admins who lose it rotate: the old one keeps signing for a grace period.
         with transaction.atomic():
             # Locked so two concurrent rotations can't both hand out a secret, one of which is then lost.
             endpoint = get_object_or_404(company_endpoints(request).select_for_update(), pk=pk)
@@ -144,5 +143,7 @@ class DeliveriesView(APIView):
 
     def get(self, request: Request, pk: int) -> Response:
         endpoint = get_object_or_404(company_endpoints(request), pk=pk)
-        payloads = endpoint.payloads.order_by('-created_at', '-id').prefetch_related('events')[:RECENT_DELIVERIES]
+        payloads = endpoint.payloads.order_by('-created_at', '-id').prefetch_related('events')[
+            : settings.WEBHOOK_RECENT_DELIVERIES
+        ]
         return Response(WebhookDeliverySerializer(payloads, many=True).data)

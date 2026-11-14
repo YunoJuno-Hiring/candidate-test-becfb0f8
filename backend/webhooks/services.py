@@ -2,6 +2,7 @@ import logging
 import uuid
 from typing import Any
 
+from django.conf import settings
 from django.utils import timezone
 
 from accounts.models import Company
@@ -11,8 +12,6 @@ from . import tasks
 from .models import WebhookEndpoint, WebhookPayload
 
 logger = logging.getLogger(__name__)
-
-PAYLOAD_VERSION = 1
 
 
 def queue(payload: WebhookPayload) -> None:
@@ -26,7 +25,7 @@ def envelope(event_type: str, data: dict[str, Any]) -> dict[str, Any]:
     return {
         'id': f'evt_{uuid.uuid4().hex}',
         'type': event_type,
-        'version': PAYLOAD_VERSION,
+        'version': settings.WEBHOOK_PAYLOAD_VERSION,
         'created_at': timezone.now().isoformat(),
         'data': data,
     }
@@ -56,7 +55,7 @@ def emit_contract_created(contract: Contract) -> None:
             'status': contract.status,
             'start_date': str(contract.start_date),
             'end_date': str(contract.end_date),
-            'download_url': f'https://app.example.com/api/contracts/{contract.id}/download/',
+            'download_url': f'{settings.WEBHOOK_PUBLIC_BASE_URL}/api/contracts/{contract.id}/download/',
         },
     )
 
