@@ -14,6 +14,7 @@ import pytest
 from django.contrib.auth.models import User
 from django.core import mail
 from django.utils import timezone
+from django_tasks_db.models import DBTaskResult
 
 from accounts.models import Company
 from webhooks import delivery
@@ -174,6 +175,24 @@ def test_after_a_url_change_retries_go_to_the_new_url_and_the_trail_shows_both(
     attempts = payload.events.filter(to_status__in=[Status.DELIVERED, Status.FAILED]).order_by('created_at', 'id')
     assert [event.url for event in attempts] == ['https://8.8.8.8/hook', 'https://1.1.1.1/hook']
     assert payload.url == 'https://8.8.8.8/hook'  # where it pointed when the event happened
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('record', [lambda p: delivery.succeed(p, 200), lambda p: delivery.fail(p, 503, 'down')])
+def test_an_outcome_another_worker_already_recorded_is_left_alone(
+    endpoint: WebhookEndpoint, new_payload: Callable[[], WebhookPayload], record: Callable[[WebhookPayload], None]
+) -> None:
+    endpoint.claim_alert()  # an incident is open
+    payload = new_payload()  # this worker still thinks it's queued...
+    WebhookPayload.objects.filter(pk=payload.pk).update(status=Status.DELIVERED)  # ...but another worker finished it
+    DBTaskResult.objects.all().delete()
+
+    record(payload)
+
+    assert not payload.events.filter(to_status__in=[Status.DELIVERED, Status.FAILED]).exists()  # no second outcome
+    assert not DBTaskResult.objects.exists()  # and no second retry chain
+    endpoint.refresh_from_db()
+    assert endpoint.alerted_at is not None  # nor does a stale success end someone else's incident
 
 
 @pytest.mark.django_db

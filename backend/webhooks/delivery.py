@@ -86,7 +86,8 @@ def deliver(payload: WebhookPayload, client: httpx.Client | None = None) -> None
 
 
 def succeed(payload: WebhookPayload, response_code: int, url: str = '') -> None:
-    payload.transition(Status.DELIVERED, response_code=response_code, url=url)
+    if not payload.transition(Status.DELIVERED, response_code=response_code, url=url):
+        return  # another worker already recorded this payload's outcome
     logger.info('Webhook payload %s delivered to endpoint %s: HTTP %s', payload.id, payload.endpoint_id, response_code)
     endpoint = payload.endpoint
     # A success ends the incident, and re-enables a disabled endpoint; it never unpauses a paused one.
@@ -98,9 +99,9 @@ def succeed(payload: WebhookPayload, response_code: int, url: str = '') -> None:
 def fail(payload: WebhookPayload, response_code: int | None, error: str, url: str = '') -> None:
     endpoint = payload.endpoint
     with transaction.atomic():  # the failure, its retry time and the queued retry are recorded together
-        payload.transition(
-            Status.FAILED, response_code=response_code, error=error[: settings.WEBHOOK_MAX_ERROR_LENGTH], url=url
-        )
+        error = error[: settings.WEBHOOK_MAX_ERROR_LENGTH]
+        if not payload.transition(Status.FAILED, response_code=response_code, error=error, url=url):
+            return  # another worker already recorded this payload's outcome (and scheduled any retry)
         failures = payload.events.filter(to_status=Status.FAILED).count()  # the first attempt, then retries
         first_attempt_at = payload.events.filter(to_status=Status.QUEUED).earliest('created_at').created_at
         payload.next_attempt_at = next_attempt_at(first_attempt_at, timezone.now(), retry=failures)
@@ -136,7 +137,8 @@ def fail(payload: WebhookPayload, response_code: int | None, error: str, url: st
 def abandon(payload: WebhookPayload, reason: str) -> None:
     # Failed for good without being sent: no retry is scheduled and admins aren't alerted.
     with transaction.atomic():
-        payload.transition(Status.FAILED, error=reason)
+        if not payload.transition(Status.FAILED, error=reason):
+            return
         payload.next_attempt_at = None
         payload.save(update_fields=['next_attempt_at'])
     logger.warning(
