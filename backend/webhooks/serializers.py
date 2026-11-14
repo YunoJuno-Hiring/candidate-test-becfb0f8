@@ -3,6 +3,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db.models import QuerySet
 from rest_framework import serializers
 
 from .models import WebhookEndpoint, WebhookPayload, WebhookPayloadEvent
@@ -24,6 +25,10 @@ def attempt_result(event: WebhookPayloadEvent) -> dict[str, Any]:
     }
 
 
+def attempts_newest_first() -> QuerySet[WebhookPayloadEvent]:
+    return WebhookPayloadEvent.objects.filter(to_status__in=ATTEMPT_RESULTS).order_by('-created_at', '-id')
+
+
 class WebhookEndpointSerializer(serializers.ModelSerializer[WebhookEndpoint]):
     # The secret and company are never accepted from clients: the model generates one, the view sets the other.
     last_delivery = serializers.SerializerMethodField()
@@ -33,12 +38,12 @@ class WebhookEndpointSerializer(serializers.ModelSerializer[WebhookEndpoint]):
         fields = ['id', 'url', 'status', 'last_delivery']
 
     def get_last_delivery(self, endpoint: WebhookEndpoint) -> dict[str, Any] | None:
-        # The most recent attempt to any of its payloads, for the list page's summary column.
-        latest = (
-            WebhookPayloadEvent.objects.filter(payload__endpoint=endpoint, to_status__in=ATTEMPT_RESULTS)
-            .order_by('-created_at', '-id')
-            .first()
-        )
+        # The most recent attempt to any of its payloads. The list view attaches it for every row in one query;
+        # single-endpoint responses look it up here.
+        if hasattr(endpoint, 'last_attempt'):
+            latest = endpoint.last_attempt
+        else:
+            latest = attempts_newest_first().filter(payload__endpoint=endpoint).first()
         return attempt_result(latest) if latest else None
 
     def validate_url(self, url: str) -> str:

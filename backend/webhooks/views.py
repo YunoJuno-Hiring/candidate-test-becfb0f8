@@ -4,7 +4,7 @@ from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import OuterRef, QuerySet, Subquery
 from django.shortcuts import get_object_or_404
 from django.utils.cache import patch_cache_control
 from rest_framework import generics, status
@@ -16,8 +16,8 @@ from rest_framework.views import APIView
 
 from accounts.models import Company
 
-from .models import WebhookEndpoint
-from .serializers import WebhookDeliverySerializer, WebhookEndpointSerializer
+from .models import WebhookEndpoint, WebhookPayloadEvent
+from .serializers import WebhookDeliverySerializer, WebhookEndpointSerializer, attempts_newest_first
 from .services import resume, send_test_event
 
 # Audit trail: who changed what, by id. Hosts rather than full URLs, which can carry tokens.
@@ -56,6 +56,15 @@ class WebhookEndpointListCreateView(generics.ListCreateAPIView[WebhookEndpoint])
 
     def get_queryset(self) -> QuerySet[WebhookEndpoint]:
         return company_endpoints(self.request)
+
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # Two queries however many endpoints (no N+1): each row carries its latest attempt's id, then all are fetched.
+        latest = attempts_newest_first().filter(payload__endpoint=OuterRef('pk')).values('id')[:1]
+        endpoints = list(self.get_queryset().annotate(last_attempt_id=Subquery(latest)))
+        attempts = WebhookPayloadEvent.objects.in_bulk([e.last_attempt_id for e in endpoints if e.last_attempt_id])
+        for endpoint in endpoints:
+            endpoint.last_attempt = attempts.get(endpoint.last_attempt_id)  # type: ignore[attr-defined]  # read by the serializer
+        return Response(self.get_serializer(endpoints, many=True).data)
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = self.get_serializer(data=request.data)
