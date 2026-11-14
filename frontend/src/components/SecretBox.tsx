@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-// Shows a signing secret with a copy button. Used on create and on reveal.
+// Shows a signing secret with a copy button. Used on create and on rotate: the only times a secret is shown.
 export function SecretBox({ title, secret, note }: { title: string; secret: string; note: string }) {
   const [copied, setCopied] = useState(false)
 

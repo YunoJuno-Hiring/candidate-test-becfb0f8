@@ -44,7 +44,8 @@ def deliver(payload: WebhookPayload, client: httpx.Client | None = None) -> None
         'content-type': 'application/json',
         'webhook-id': msg_id,
         'webhook-timestamp': str(timestamp),
-        'webhook-signature': sign(endpoint.secret, msg_id, timestamp, body),
+        # Standard Webhooks allows several space-separated signatures; receivers accept any that verifies.
+        'webhook-signature': ' '.join(sign(secret, msg_id, timestamp, body) for secret in endpoint.signing_secrets()),
     }
     try:
         validate_webhook_url(endpoint.url)  # again at send time: DNS may have changed since it was saved

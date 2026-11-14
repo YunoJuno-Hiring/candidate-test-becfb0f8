@@ -26,9 +26,9 @@ export function deleteWebhookEndpoint(id: number): Promise<void> {
   return api.delete(`${BASE}/${id}/`)
 }
 
-// TODO (backend): don't show the secret after creation; add rotation instead.
-export function revealWebhookSecret(id: number): Promise<{ secret: string }> {
-  return api.post(`${BASE}/${id}/reveal-secret/`, {})
+// Returns a new secret; the old one keeps signing for 24 hours so the receiver can switch over.
+export function rotateWebhookSecret(id: number): Promise<{ secret: string }> {
+  return api.post(`${BASE}/${id}/rotate-secret/`, {})
 }
 
 export function sendTestEvent(id: number): Promise<{ id: number }> {

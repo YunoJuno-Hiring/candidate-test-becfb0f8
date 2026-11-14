@@ -35,7 +35,7 @@ def test_another_companys_endpoint_is_not_found(admin_client: APIClient, meridia
     other = WebhookEndpoint.objects.create(company=meridian, url=VALID)
 
     assert admin_client.patch(f'{URL}{other.id}/', {'url': VALID}).status_code == 404
-    assert admin_client.post(f'{URL}{other.id}/reveal-secret/').status_code == 404
+    assert admin_client.post(f'{URL}{other.id}/rotate-secret/').status_code == 404
     assert admin_client.post(f'{URL}{other.id}/test/').status_code == 404
     assert admin_client.delete(f'{URL}{other.id}/').status_code == 404
 
@@ -70,10 +70,14 @@ def test_clients_cannot_set_the_secret_or_company(admin_client: APIClient, merid
 
 
 @pytest.mark.django_db
-def test_reveal_secret(admin_client: APIClient, endpoint: WebhookEndpoint) -> None:
-    resp = admin_client.post(f'{URL}{endpoint.id}/reveal-secret/')
+def test_rotating_returns_only_the_new_secret(admin_client: APIClient, endpoint: WebhookEndpoint) -> None:
+    old = endpoint.secret
+    resp = admin_client.post(f'{URL}{endpoint.id}/rotate-secret/')
+    endpoint.refresh_from_db()
 
     assert resp.data == {'secret': endpoint.secret}
+    assert endpoint.secret != old
+    assert endpoint.previous_secret == old  # still signing during the grace period, but never returned
     assert 'no-store' in resp['Cache-Control']
 
 
@@ -150,11 +154,14 @@ def test_delete_takes_the_history_with_it(admin_client: APIClient, endpoint: Web
 
 
 @pytest.mark.django_db
-def test_revealing_a_secret_is_logged_as_a_warning(
+def test_rotating_a_secret_is_logged_as_a_warning(
     caplog: pytest.LogCaptureFixture, admin_client: APIClient, endpoint: WebhookEndpoint
 ) -> None:
+    old = endpoint.secret
     with caplog.at_level(logging.WARNING, logger='webhooks'):
-        admin_client.post(f'{URL}{endpoint.id}/reveal-secret/')
+        admin_client.post(f'{URL}{endpoint.id}/rotate-secret/')
+    endpoint.refresh_from_db()
 
-    assert f'revealed the secret for webhook endpoint {endpoint.id}' in caplog.text
+    assert f'rotated the secret for webhook endpoint {endpoint.id}' in caplog.text
     assert endpoint.secret not in caplog.text
+    assert old not in caplog.text

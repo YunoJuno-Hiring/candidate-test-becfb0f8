@@ -110,13 +110,16 @@ class WebhookEndpointDetailView(generics.RetrieveUpdateDestroyAPIView[WebhookEnd
         )
 
 
-class RevealSecretView(APIView):
+class RotateSecretView(APIView):
     permission_classes = [IsCompanyAdmin]
 
     def post(self, request: Request, pk: int) -> Response:
-        # TODO: don't show the secret after creation; add rotation instead.
-        endpoint = get_object_or_404(company_endpoints(request), pk=pk)
-        logger.warning('User %s revealed the secret for webhook endpoint %s', request.user.id, endpoint.id)
+        # A secret is only ever shown once. Admins who lose it rotate: the old one keeps signing for ROTATION_GRACE.
+        with transaction.atomic():
+            # Locked so two concurrent rotations can't both hand out a secret, one of which is then lost.
+            endpoint = get_object_or_404(company_endpoints(request).select_for_update(), pk=pk)
+            endpoint.rotate_secret()
+        logger.warning('User %s rotated the secret for webhook endpoint %s', request.user.id, endpoint.id)
         return no_store(Response({'secret': endpoint.secret}))
 
 

@@ -48,6 +48,20 @@ describe('WebhookEndpointDetail', () => {
     expect(api.deleteWebhookEndpoint).toHaveBeenCalledWith(1)
   })
 
+  it('only rotates the secret once the admin confirms, then shows the new one', async () => {
+    vi.mocked(api.rotateWebhookSecret).mockResolvedValue({ secret: 'whsec_new' })
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Rotate secret' }))
+    expect(api.rotateWebhookSecret).not.toHaveBeenCalled()
+
+    confirm.mockReturnValue(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Rotate secret' }))
+    expect(await screen.findByText('whsec_new')).toBeTruthy()
+    expect(api.rotateWebhookSecret).toHaveBeenCalledWith(1)
+  })
+
   it('shows each attempt and its error when a delivery is expanded', async () => {
     renderPage(ENDPOINT, [
       {

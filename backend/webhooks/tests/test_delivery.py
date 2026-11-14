@@ -81,6 +81,40 @@ def test_requests_are_signed_per_standard_webhooks(
     assert json.loads(request.content)['id'] == msg_id  # the consumer's dedupe key
 
 
+def expected_signature(secret: str, request: httpx.Request) -> str:
+    key = base64.b64decode(secret.removeprefix('whsec_'))
+    signed = f'{request.headers["webhook-id"]}.{request.headers["webhook-timestamp"]}.'.encode() + request.content
+    return 'v1,' + base64.b64encode(hmac.new(key, signed, hashlib.sha256).digest()).decode()
+
+
+@pytest.mark.django_db
+def test_after_a_rotation_requests_carry_a_signature_from_each_secret(
+    endpoint: WebhookEndpoint, new_payload: Callable[[], WebhookPayload]
+) -> None:
+    old = endpoint.secret
+    endpoint.rotate_secret()
+    seen: list[httpx.Request] = []
+    attempt(new_payload(), client(200, seen))
+
+    assert seen[0].headers['webhook-signature'].split(' ') == [
+        expected_signature(endpoint.secret, seen[0]),
+        expected_signature(old, seen[0]),
+    ]
+
+
+@pytest.mark.django_db
+def test_once_the_grace_period_ends_only_the_new_secret_signs(
+    endpoint: WebhookEndpoint, new_payload: Callable[[], WebhookPayload]
+) -> None:
+    endpoint.rotate_secret()
+    endpoint.previous_secret_expires_at = timezone.now()
+    endpoint.save()
+    seen: list[httpx.Request] = []
+    attempt(new_payload(), client(200, seen))
+
+    assert seen[0].headers['webhook-signature'] == expected_signature(endpoint.secret, seen[0])
+
+
 @pytest.mark.django_db
 @pytest.mark.parametrize('status', [302, 404, 500, 503])
 def test_anything_but_2xx_fails_and_schedules_a_retry(new_payload: Callable[[], WebhookPayload], status: int) -> None:

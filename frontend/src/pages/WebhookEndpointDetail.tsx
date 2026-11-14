@@ -5,7 +5,7 @@ import {
   deleteWebhookEndpoint,
   fetchWebhookDeliveries,
   fetchWebhookEndpoint,
-  revealWebhookSecret,
+  rotateWebhookSecret,
   sendTestEvent,
   updateWebhookEndpoint,
 } from '../api/webhooks'
@@ -138,7 +138,7 @@ export default function WebhookEndpointDetail() {
       refresh()
     },
   })
-  const reveal = useMutation({ mutationFn: () => revealWebhookSecret(id), onSuccess: (data) => setSecret(data.secret) })
+  const rotate = useMutation({ mutationFn: () => rotateWebhookSecret(id), onSuccess: (data) => setSecret(data.secret) })
   const remove = useMutation({
     mutationFn: () => deleteWebhookEndpoint(id),
     onSuccess: () => {
@@ -149,6 +149,10 @@ export default function WebhookEndpointDetail() {
 
   function handleDelete() {
     if (window.confirm('Delete this endpoint and its delivery history? This cannot be undone.')) remove.mutate()
+  }
+
+  function handleRotate() {
+    if (window.confirm('Generate a new signing secret? The current one keeps working for 24 hours.')) rotate.mutate()
   }
 
   if (endpointQuery.isLoading) return <p className="text-slate-500">Loading…</p>
@@ -201,8 +205,8 @@ export default function WebhookEndpointDetail() {
               Send test event
             </button>
           )}
-          <button className={button} disabled={reveal.isPending} onClick={() => reveal.mutate()}>
-            Reveal secret
+          <button className={button} disabled={rotate.isPending} onClick={handleRotate}>
+            Rotate secret
           </button>
           <button
             className="text-sm border border-red-300 text-red-700 rounded px-3 py-1.5 hover:bg-red-50 disabled:opacity-50 ml-auto"
@@ -220,13 +224,17 @@ export default function WebhookEndpointDetail() {
           </p>
         )}
         {notice && <p className="text-green-700 text-sm">{notice}</p>}
-        {(setStatus.isError || test.isError || reveal.isError || remove.isError) && (
+        {(setStatus.isError || test.isError || rotate.isError || remove.isError) && (
           <p role="alert" className="text-red-700 text-sm">
             Something went wrong. Please try again.
           </p>
         )}
         {secret && (
-          <SecretBox title="Signing secret" secret={secret} note="Keep it private: anyone with it can forge webhooks." />
+          <SecretBox
+            title="New signing secret. Copy it now"
+            secret={secret}
+            note="It won't be shown again. Deliveries are signed with both secrets for 24 hours, then only this one."
+          />
         )}
       </div>
 

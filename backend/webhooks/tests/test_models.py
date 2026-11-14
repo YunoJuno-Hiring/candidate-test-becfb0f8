@@ -1,9 +1,11 @@
 import base64
+from datetime import timedelta
 
 import pytest
+from django.utils import timezone
 
 from accounts.models import Company
-from webhooks.models import WebhookEndpoint
+from webhooks.models import ROTATION_GRACE, WebhookEndpoint
 
 
 def make_endpoint(company: Company) -> WebhookEndpoint:
@@ -35,3 +37,30 @@ def test_saving_an_endpoint_keeps_its_secret(northstar: Company) -> None:
     endpoint.refresh_from_db()
 
     assert endpoint.secret == secret
+
+
+@pytest.mark.django_db
+def test_rotating_signs_with_both_secrets_until_the_grace_period_ends(northstar: Company) -> None:
+    endpoint = make_endpoint(northstar)
+    old = endpoint.secret
+
+    endpoint.rotate_secret()
+    endpoint.refresh_from_db()
+    assert endpoint.signing_secrets() == [endpoint.secret, old]  # current first
+
+    endpoint.previous_secret_expires_at = timezone.now() - timedelta(seconds=1)
+    assert endpoint.signing_secrets() == [endpoint.secret]
+
+
+@pytest.mark.django_db
+def test_rotating_twice_keeps_only_the_latest_previous_secret(northstar: Company) -> None:
+    endpoint = make_endpoint(northstar)
+    first = endpoint.secret
+    endpoint.rotate_secret()
+    second = endpoint.secret
+    endpoint.rotate_secret()
+
+    assert endpoint.signing_secrets() == [endpoint.secret, second]
+    assert first not in endpoint.signing_secrets()
+    assert endpoint.previous_secret_expires_at is not None
+    assert endpoint.previous_secret_expires_at <= timezone.now() + ROTATION_GRACE

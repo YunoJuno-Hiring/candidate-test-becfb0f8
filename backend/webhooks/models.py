@@ -5,10 +5,15 @@
 # delivery-log models belong in this file.
 import base64
 import secrets
+from datetime import timedelta
 
 from django.db import models, transaction
+from django.utils import timezone
 
 from accounts.models import Company
+
+# How long the old secret keeps signing after a rotation, so receivers can switch over without failed deliveries.
+ROTATION_GRACE = timedelta(hours=24)
 
 
 def generate_secret() -> str:
@@ -28,12 +33,29 @@ class WebhookEndpoint(models.Model):
     url = models.URLField(max_length=2048)
     # Generated for each new endpoint, wherever it's created; never set by hand.
     secret = models.CharField(max_length=64, default=generate_secret, editable=False)
+    # The secret before the last rotation; deliveries carry a signature from it too until it expires.
+    previous_secret = models.CharField(max_length=64, blank=True, editable=False)
+    previous_secret_expires_at = models.DateTimeField(null=True, blank=True, editable=False)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.ACTIVE)
     # Set when admins are emailed about a failing incident; a success clears it, so one email per incident.
     alerted_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self) -> str:
         return self.url
+
+    def rotate_secret(self) -> None:
+        # Only one previous secret is kept: rotating twice within the grace period drops the oldest.
+        self.previous_secret = self.secret
+        self.previous_secret_expires_at = timezone.now() + ROTATION_GRACE
+        self.secret = generate_secret()
+        self.save(update_fields=['secret', 'previous_secret', 'previous_secret_expires_at'])
+
+    def signing_secrets(self) -> list[str]:
+        # The current secret first, then the previous one while its grace period lasts.
+        expires = self.previous_secret_expires_at
+        if self.previous_secret and expires and expires > timezone.now():
+            return [self.secret, self.previous_secret]
+        return [self.secret]
 
 
 class WebhookPayload(models.Model):
